@@ -1,0 +1,1521 @@
+--// LTCV2 HUB v15 - Noellin Edition
+-- Teleport, Vista previa, Velocidad, Salto, Fly (LookVector),
+-- Checkpoints, FPS/Ping con colores, ESP nombres, contenido con scroll.
+
+---------------------------------------------------------------------
+-- Servicios
+---------------------------------------------------------------------
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Stats = game:GetService("Stats")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local camera = workspace.CurrentCamera
+local mouse = player:GetMouse()
+
+---------------------------------------------------------------------
+-- Colores / Config
+---------------------------------------------------------------------
+local COLOR_BG      = Color3.fromRGB(10, 10, 10)
+local COLOR_PANEL   = Color3.fromRGB(18, 18, 18)
+local COLOR_PANEL_2 = Color3.fromRGB(25, 25, 25)
+local COLOR_NEON    = Color3.fromRGB(255, 40, 40)
+local COLOR_TEXT    = Color3.fromRGB(255, 255, 255)
+local COLOR_MUTED   = Color3.fromRGB(180, 180, 180)
+local COLOR_HOVER   = Color3.fromRGB(60, 60, 60)
+
+-- Colores para calidad de FPS/Ping
+local COLOR_GOOD = Color3.fromRGB(0, 255, 0)    -- verde
+local COLOR_MED  = Color3.fromRGB(255, 220, 0)  -- amarillo
+local COLOR_BAD  = Color3.fromRGB(255, 80, 80)  -- rojo
+
+local WALK_MIN, WALK_MAX = 16, 130
+local JUMP_MIN, JUMP_MAX = 50, 220
+local FLY_MIN,  FLY_MAX  = 0, 200
+
+---------------------------------------------------------------------
+-- Estado
+---------------------------------------------------------------------
+local selectedPlayer = nil
+
+local spectating = false
+local spectateTarget = nil
+local originalCameraType = nil
+local originalCameraSubject = nil
+
+local flying = false
+local currentFlySpeed = FLY_MIN
+local flyPrevAnchored = false
+local flyCFrame = nil
+
+-- Checkpoints
+local savedPositions = {}
+local selectedCheckpointIndex = nil
+
+-- FPS / Ping
+local showStats = false
+
+-- ESP
+local espEnabled = false
+
+---------------------------------------------------------------------
+-- Helpers
+---------------------------------------------------------------------
+local function safe(fn)
+    local ok, err = pcall(fn)
+    if not ok then
+        warn("[LTCV2] Error:", err)
+    end
+end
+
+local function getHumanoidAndRoot()
+    local char = player.Character
+    if not char then return nil, nil end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    return hum, hrp
+end
+
+local function getFpsColor(fps)
+    -- 60+ = verde, 30–59 = amarillo, <30 = rojo
+    if fps >= 60 then
+        return COLOR_GOOD
+    elseif fps >= 30 then
+        return COLOR_MED
+    else
+        return COLOR_BAD
+    end
+end
+
+local function getPingColor(ms)
+    -- 0–80 = verde, 81–150 = amarillo, 151+ = rojo
+    if ms <= 80 then
+        return COLOR_GOOD
+    elseif ms <= 150 then
+        return COLOR_MED
+    else
+        return COLOR_BAD
+    end
+end
+
+---------------------------------------------------------------------
+-- ScreenGui
+---------------------------------------------------------------------
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "LTCV2_HUB"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.DisplayOrder = 999999999
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+screenGui.Parent = playerGui
+
+task.spawn(function()
+    while true do
+        screenGui.DisplayOrder = 999999999
+        task.wait(0.5)
+    end
+end)
+
+---------------------------------------------------------------------
+-- Launcher (HUB de LTCV2)
+---------------------------------------------------------------------
+local launcher = Instance.new("Frame")
+launcher.Size = UDim2.new(0, 360, 0, 170)
+launcher.Position = UDim2.new(0.12, 0, 0.3, 0)
+launcher.BackgroundColor3 = COLOR_PANEL
+launcher.BorderSizePixel = 0
+launcher.Parent = screenGui
+
+local launcherCorner = Instance.new("UICorner")
+launcherCorner.CornerRadius = UDim.new(0, 14)
+launcherCorner.Parent = launcher
+
+local launcherStroke = Instance.new("UIStroke")
+launcherStroke.Color = COLOR_NEON
+launcherStroke.Thickness = 1.5
+launcherStroke.Parent = launcher
+
+local launchTitle = Instance.new("TextLabel")
+launchTitle.Size = UDim2.new(1, -20, 0, 50)
+launchTitle.Position = UDim2.new(0, 10, 0, 10)
+launchTitle.BackgroundTransparency = 1
+launchTitle.Font = Enum.Font.GothamBlack
+launchTitle.Text = "HUB de LTCV2"
+launchTitle.TextSize = 30
+launchTitle.TextXAlignment = Enum.TextXAlignment.Left
+launchTitle.TextColor3 = COLOR_TEXT
+launchTitle.Parent = launcher
+
+local launchSub = Instance.new("TextLabel")
+launchSub.Size = UDim2.new(1, -20, 0, 30)
+launchSub.Position = UDim2.new(0, 10, 0, 60)
+launchSub.BackgroundTransparency = 1
+launchSub.Font = Enum.Font.Gotham
+launchSub.Text = "Pulsa JUGAR para abrir el HUB."
+launchSub.TextSize = 18
+launchSub.TextXAlignment = Enum.TextXAlignment.Left
+launchSub.TextColor3 = COLOR_MUTED
+launchSub.Parent = launcher
+
+local playBtn = Instance.new("TextButton")
+playBtn.Size = UDim2.new(0, 140, 0, 44)
+playBtn.Position = UDim2.new(1, -150, 1, -60)
+playBtn.BackgroundColor3 = COLOR_NEON
+playBtn.Text = "JUGAR"
+playBtn.Font = Enum.Font.GothamBold
+playBtn.TextSize = 20
+playBtn.TextColor3 = COLOR_TEXT
+playBtn.AutoButtonColor = true
+playBtn.Parent = launcher
+
+local playCorner = Instance.new("UICorner")
+playCorner.CornerRadius = UDim.new(0, 10)
+playCorner.Parent = playBtn
+
+launcher.Active = true
+launcher.Draggable = true
+
+---------------------------------------------------------------------
+-- HUB principal
+---------------------------------------------------------------------
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 380, 0, 510)
+mainFrame.Position = UDim2.new(0, 20, 0.16, 0)
+mainFrame.BackgroundColor3 = COLOR_PANEL
+mainFrame.BorderSizePixel = 0
+mainFrame.Visible = false
+mainFrame.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 14)
+mainCorner.Parent = mainFrame
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = COLOR_NEON
+mainStroke.Thickness = 1.6
+mainStroke.Parent = mainFrame
+
+mainFrame.Active = true
+mainFrame.Draggable = true
+
+-- Header
+local header = Instance.new("Frame")
+header.Size = UDim2.new(1, 0, 0, 46)
+header.BackgroundTransparency = 1
+header.Parent = mainFrame
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -110, 1, 0)
+titleLabel.Position = UDim2.new(0, 14, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Font = Enum.Font.GothamBlack
+titleLabel.Text = "HUB de LTCV2"
+titleLabel.TextSize = 22
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.TextColor3 = COLOR_TEXT
+titleLabel.Parent = header
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 34, 0, 34)
+closeBtn.Position = UDim2.new(1, -40, 0, 6)
+closeBtn.Text = "X"
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 20
+closeBtn.TextColor3 = COLOR_TEXT
+closeBtn.BackgroundColor3 = COLOR_NEON
+closeBtn.AutoButtonColor = true
+closeBtn.Parent = header
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 8)
+closeCorner.Parent = closeBtn
+
+local minBtn = Instance.new("TextButton")
+minBtn.Size = UDim2.new(0, 34, 0, 34)
+minBtn.Position = UDim2.new(1, -80, 0, 6)
+minBtn.Text = "-"
+minBtn.Font = Enum.Font.GothamBold
+minBtn.TextSize = 28
+minBtn.TextColor3 = COLOR_TEXT
+minBtn.BackgroundColor3 = COLOR_BG
+minBtn.AutoButtonColor = true
+minBtn.Parent = header
+
+local minCorner = Instance.new("UICorner")
+minCorner.CornerRadius = UDim.new(0, 8)
+minCorner.Parent = minBtn
+
+-- Sidebar
+local sideBar = Instance.new("Frame")
+sideBar.Size = UDim2.new(0, 80, 1, -46)
+sideBar.Position = UDim2.new(0, 0, 0, 46)
+sideBar.BackgroundColor3 = COLOR_BG
+sideBar.BorderSizePixel = 0
+sideBar.Parent = mainFrame
+
+local sideCorner = Instance.new("UICorner")
+sideCorner.CornerRadius = UDim.new(0, 12)
+sideCorner.Parent = sideBar
+
+local homeBtn = Instance.new("TextButton")
+homeBtn.Size = UDim2.new(1, -16, 0, 50)
+homeBtn.Position = UDim2.new(0, 8, 0, 10)
+homeBtn.BackgroundColor3 = COLOR_NEON
+homeBtn.Text = "Hogar"
+homeBtn.Font = Enum.Font.GothamBold
+homeBtn.TextSize = 18
+homeBtn.TextColor3 = COLOR_TEXT
+homeBtn.AutoButtonColor = true
+homeBtn.Parent = sideBar
+
+local homeCorner = Instance.new("UICorner")
+homeCorner.CornerRadius = UDim.new(0, 10)
+homeCorner.Parent = homeBtn
+
+---------------------------------------------------------------------
+-- Contenido con SCROLL
+---------------------------------------------------------------------
+local content = Instance.new("ScrollingFrame")
+content.Size = UDim2.new(1, -80, 1, -46)
+content.Position = UDim2.new(0, 80, 0, 46)
+content.BackgroundColor3 = COLOR_PANEL_2
+content.BorderSizePixel = 0
+content.ScrollBarThickness = 6
+content.ScrollBarImageColor3 = COLOR_NEON
+content.CanvasSize = UDim2.new(0, 0, 0, 0)
+content.ClipsDescendants = true
+content.Parent = mainFrame
+
+local contentCorner = Instance.new("UICorner")
+contentCorner.CornerRadius = UDim.new(0, 12)
+contentCorner.Parent = content
+
+local padding = Instance.new("UIPadding")
+padding.PaddingTop = UDim.new(0, 10)
+padding.PaddingLeft = UDim.new(0, 12)
+padding.PaddingRight = UDim.new(0, 12)
+padding.PaddingBottom = UDim.new(0, 10)
+padding.Parent = content
+
+local layout = Instance.new("UIListLayout")
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Padding = UDim.new(0, 8)
+layout.Parent = content
+
+layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    content.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
+end)
+
+---------------------------------------------------------------------
+-- Teleport / Dropdown botón
+---------------------------------------------------------------------
+local tpTitle = Instance.new("TextLabel")
+tpTitle.Size = UDim2.new(1, 0, 0, 24)
+tpTitle.BackgroundTransparency = 1
+tpTitle.Font = Enum.Font.GothamBold
+tpTitle.Text = "Teletransportación"
+tpTitle.TextColor3 = COLOR_TEXT
+tpTitle.TextSize = 18
+tpTitle.TextXAlignment = Enum.TextXAlignment.Left
+tpTitle.Parent = content
+
+local dropdownContainer = Instance.new("Frame")
+dropdownContainer.Size = UDim2.new(1, 0, 0, 40)
+dropdownContainer.BackgroundTransparency = 1
+dropdownContainer.Parent = content
+
+local dropdownButton = Instance.new("TextButton")
+dropdownButton.Size = UDim2.new(1, 0, 1, 0)
+dropdownButton.BackgroundColor3 = COLOR_BG
+dropdownButton.Text = "Seleccionar jugador ▼"
+dropdownButton.Font = Enum.Font.Gotham
+dropdownButton.TextSize = 16
+dropdownButton.TextColor3 = COLOR_MUTED
+dropdownButton.AutoButtonColor = true
+dropdownButton.Parent = dropdownContainer
+
+local dropdownBtnCorner = Instance.new("UICorner")
+dropdownBtnCorner.CornerRadius = UDim.new(0, 8)
+dropdownBtnCorner.Parent = dropdownButton
+
+local dropdownStroke = Instance.new("UIStroke")
+dropdownStroke.Color = COLOR_NEON
+dropdownStroke.Thickness = 1
+dropdownStroke.Parent = dropdownButton
+
+---------------------------------------------------------------------
+-- Dropdown flotante (jugadores)
+---------------------------------------------------------------------
+local dropdownFrame = Instance.new("ScrollingFrame")
+dropdownFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+dropdownFrame.ScrollBarThickness = 4
+dropdownFrame.ScrollBarImageColor3 = COLOR_NEON
+dropdownFrame.BackgroundColor3 = COLOR_BG
+dropdownFrame.BorderSizePixel = 0
+dropdownFrame.Visible = false
+dropdownFrame.ClipsDescendants = true
+dropdownFrame.ZIndex = 20
+dropdownFrame.Parent = mainFrame
+
+local dropdownFrameCorner = Instance.new("UICorner")
+dropdownFrameCorner.CornerRadius = UDim.new(0, 8)
+dropdownFrameCorner.Parent = dropdownFrame
+
+local dropdownFrameStroke = Instance.new("UIStroke")
+dropdownFrameStroke.Color = COLOR_NEON
+dropdownFrameStroke.Thickness = 1
+dropdownFrameStroke.Parent = dropdownFrame
+
+local dropLayout = Instance.new("UIListLayout")
+dropLayout.SortOrder = Enum.SortOrder.LayoutOrder
+dropLayout.Padding = UDim.new(0, 4)
+dropLayout.Parent = dropdownFrame
+
+dropLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    dropdownFrame.CanvasSize = UDim2.new(0, 0, 0, dropLayout.AbsoluteContentSize.Y + 8)
+end)
+
+local function updateDropdownPosition()
+    local btnPos = dropdownButton.AbsolutePosition
+    local btnSize = dropdownButton.AbsoluteSize
+    local guiPos = mainFrame.AbsolutePosition
+
+    local relX = btnPos.X - guiPos.X
+    local relY = btnPos.Y - guiPos.Y + btnSize.Y + 4
+
+    dropdownFrame.Position = UDim2.new(0, relX, 0, relY)
+    dropdownFrame.Size = UDim2.new(0, btnSize.X, 0, math.min(7*28 + 12, 220))
+end
+
+dropdownButton.MouseButton1Click:Connect(function()
+    dropdownFrame.Visible = not dropdownFrame.Visible
+    if dropdownFrame.Visible then
+        updateDropdownPosition()
+    end
+end)
+
+---------------------------------------------------------------------
+-- Botones Teleport + Vista previa
+---------------------------------------------------------------------
+local actionsFrame = Instance.new("Frame")
+actionsFrame.Size = UDim2.new(1, 0, 0, 48)
+actionsFrame.BackgroundTransparency = 1
+actionsFrame.Parent = content
+
+local tpBtn = Instance.new("TextButton")
+tpBtn.Size = UDim2.new(0.48, -4, 1, 0)
+tpBtn.Position = UDim2.new(0, 0, 0, 0)
+tpBtn.BackgroundColor3 = COLOR_NEON
+tpBtn.Text = "Teletransportar"
+tpBtn.Font = Enum.Font.GothamBold
+tpBtn.TextSize = 16
+tpBtn.TextColor3 = COLOR_TEXT
+tpBtn.AutoButtonColor = true
+tpBtn.Parent = actionsFrame
+
+local tpBtnCorner = Instance.new("UICorner")
+tpBtnCorner.CornerRadius = UDim.new(0, 10)
+tpBtnCorner.Parent = tpBtn
+
+local previewFrame = Instance.new("Frame")
+previewFrame.Size = UDim2.new(0.48, -4, 1, 0)
+previewFrame.Position = UDim2.new(0.52, 4, 0, 0)
+previewFrame.BackgroundTransparency = 1
+previewFrame.Parent = actionsFrame
+
+local previewLabel = Instance.new("TextLabel")
+previewLabel.Size = UDim2.new(0.7, 0, 1, 0)
+previewLabel.BackgroundTransparency = 1
+previewLabel.Font = Enum.Font.Gotham
+previewLabel.Text = "Vista previa"
+previewLabel.TextSize = 15
+previewLabel.TextColor3 = COLOR_TEXT
+previewLabel.TextXAlignment = Enum.TextXAlignment.Left
+previewLabel.Parent = previewFrame
+
+local previewBox = Instance.new("TextButton")
+previewBox.Size = UDim2.new(0.26, 0, 0.8, 0)
+previewBox.Position = UDim2.new(0.74, 0, 0.1, 0)
+previewBox.BackgroundColor3 = COLOR_BG
+previewBox.Text = ""
+previewBox.AutoButtonColor = true
+previewBox.Parent = previewFrame
+
+local previewCorner = Instance.new("UICorner")
+previewCorner.CornerRadius = UDim.new(0, 8)
+previewCorner.Parent = previewBox
+
+local previewStroke = Instance.new("UIStroke")
+previewStroke.Color = COLOR_NEON
+previewStroke.Thickness = 1
+previewStroke.Parent = previewBox
+
+local previewCheck = Instance.new("TextLabel")
+previewCheck.Size = UDim2.new(1, 0, 1, 0)
+previewCheck.BackgroundTransparency = 1
+previewCheck.Font = Enum.Font.GothamBold
+previewCheck.Text = "✔"
+previewCheck.TextScaled = true
+previewCheck.TextColor3 = Color3.fromRGB(0, 255, 140)
+previewCheck.Visible = false
+previewCheck.Parent = previewBox
+
+---------------------------------------------------------------------
+-- Checkpoints UI
+---------------------------------------------------------------------
+local cpTitle = Instance.new("TextLabel")
+cpTitle.Size = UDim2.new(1, 0, 0, 24)
+cpTitle.BackgroundTransparency = 1
+cpTitle.Font = Enum.Font.GothamBold
+cpTitle.Text = "Puntos de control"
+cpTitle.TextColor3 = COLOR_TEXT
+cpTitle.TextSize = 18
+cpTitle.TextXAlignment = Enum.TextXAlignment.Left
+cpTitle.Parent = content
+
+local cpDropdownContainer = Instance.new("Frame")
+cpDropdownContainer.Size = UDim2.new(1, 0, 0, 40)
+cpDropdownContainer.BackgroundTransparency = 1
+cpDropdownContainer.Parent = content
+
+local cpDropdownButton = Instance.new("TextButton")
+cpDropdownButton.Size = UDim2.new(1, 0, 1, 0)
+cpDropdownButton.BackgroundColor3 = COLOR_BG
+cpDropdownButton.Text = "Seleccionar posición guardada ▼"
+cpDropdownButton.Font = Enum.Font.Gotham
+cpDropdownButton.TextSize = 16
+cpDropdownButton.TextColor3 = COLOR_MUTED
+cpDropdownButton.AutoButtonColor = true
+cpDropdownButton.Parent = cpDropdownContainer
+
+local cpDropdownBtnCorner = Instance.new("UICorner")
+cpDropdownBtnCorner.CornerRadius = UDim.new(0, 8)
+cpDropdownBtnCorner.Parent = cpDropdownButton
+
+local cpDropdownStroke = Instance.new("UIStroke")
+cpDropdownStroke.Color = COLOR_NEON
+cpDropdownStroke.Thickness = 1
+cpDropdownStroke.Parent = cpDropdownButton
+
+-- Dropdown flotante (checkpoints)
+local cpDropdownFrame = Instance.new("ScrollingFrame")
+cpDropdownFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+cpDropdownFrame.ScrollBarThickness = 4
+cpDropdownFrame.ScrollBarImageColor3 = COLOR_NEON
+cpDropdownFrame.BackgroundColor3 = COLOR_BG
+cpDropdownFrame.BorderSizePixel = 0
+cpDropdownFrame.Visible = false
+cpDropdownFrame.ClipsDescendants = true
+cpDropdownFrame.ZIndex = 20
+cpDropdownFrame.Parent = mainFrame
+
+local cpDropdownFrameCorner = Instance.new("UICorner")
+cpDropdownFrameCorner.CornerRadius = UDim.new(0, 8)
+cpDropdownFrameCorner.Parent = cpDropdownFrame
+
+local cpDropdownFrameStroke = Instance.new("UIStroke")
+cpDropdownFrameStroke.Color = COLOR_NEON
+cpDropdownFrameStroke.Thickness = 1
+cpDropdownFrameStroke.Parent = cpDropdownFrame
+
+local cpDropLayout = Instance.new("UIListLayout")
+cpDropLayout.SortOrder = Enum.SortOrder.LayoutOrder
+cpDropLayout.Padding = UDim.new(0, 4)
+cpDropLayout.Parent = cpDropdownFrame
+
+cpDropLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    cpDropdownFrame.CanvasSize = UDim2.new(0, 0, 0, cpDropLayout.AbsoluteContentSize.Y + 8)
+end)
+
+local function updateCpDropdownPosition()
+    local btnPos = cpDropdownButton.AbsolutePosition
+    local btnSize = cpDropdownButton.AbsoluteSize
+    local guiPos = mainFrame.AbsolutePosition
+
+    local relX = btnPos.X - guiPos.X
+    local relY = btnPos.Y - guiPos.Y + btnSize.Y + 4
+
+    cpDropdownFrame.Position = UDim2.new(0, relX, 0, relY)
+    cpDropdownFrame.Size = UDim2.new(0, btnSize.X, 0, math.min(7*28 + 12, 220))
+end
+
+cpDropdownButton.MouseButton1Click:Connect(function()
+    cpDropdownFrame.Visible = not cpDropdownFrame.Visible
+    if cpDropdownFrame.Visible then
+        updateCpDropdownPosition()
+    end
+end)
+
+---------------------------------------------------------------------
+-- Botones Checkpoints
+---------------------------------------------------------------------
+local cpActionsFrame = Instance.new("Frame")
+cpActionsFrame.Size = UDim2.new(1, 0, 0, 40)
+cpActionsFrame.BackgroundTransparency = 1
+cpActionsFrame.Parent = content
+
+local saveCpBtn = Instance.new("TextButton")
+saveCpBtn.Size = UDim2.new(0.48, -4, 1, 0)
+saveCpBtn.Position = UDim2.new(0, 0, 0, 0)
+saveCpBtn.BackgroundColor3 = COLOR_BG
+saveCpBtn.Text = "Guardar posición"
+saveCpBtn.Font = Enum.Font.GothamBold
+saveCpBtn.TextSize = 14
+saveCpBtn.TextColor3 = COLOR_TEXT
+saveCpBtn.AutoButtonColor = true
+saveCpBtn.Parent = cpActionsFrame
+
+local saveCpCorner = Instance.new("UICorner")
+saveCpCorner.CornerRadius = UDim.new(0, 10)
+saveCpCorner.Parent = saveCpBtn
+
+local gotoCpBtn = Instance.new("TextButton")
+gotoCpBtn.Size = UDim2.new(0.48, -4, 1, 0)
+gotoCpBtn.Position = UDim2.new(0.52, 4, 0, 0)
+gotoCpBtn.BackgroundColor3 = COLOR_NEON
+gotoCpBtn.Text = "Ir a una posición"
+gotoCpBtn.Font = Enum.Font.GothamBold
+gotoCpBtn.TextSize = 14
+gotoCpBtn.TextColor3 = COLOR_TEXT
+gotoCpBtn.AutoButtonColor = true
+gotoCpBtn.Parent = cpActionsFrame
+
+local gotoCpCorner = Instance.new("UICorner")
+gotoCpCorner.CornerRadius = UDim.new(0, 10)
+gotoCpCorner.Parent = gotoCpBtn
+
+---------------------------------------------------------------------
+-- Sliders (Velocidad, Salto, Velocidad de vuelo)
+---------------------------------------------------------------------
+local function createSlider(titleText, minValue, maxValue)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, 0, 0, 70)
+    container.BackgroundTransparency = 1
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, 22)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.GothamBold
+    label.Text = titleText
+    label.TextSize = 16
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextColor3 = COLOR_TEXT
+    label.Parent = container
+
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(1, 0, 0, 26)
+    bar.Position = UDim2.new(0, 0, 0, 28)
+    bar.BackgroundColor3 = COLOR_BG
+    bar.BorderSizePixel = 0
+    bar.Parent = container
+
+    local barCorner = Instance.new("UICorner")
+    barCorner.CornerRadius = UDim.new(0, 10)
+    barCorner.Parent = bar
+
+    local barStroke = Instance.new("UIStroke")
+    barStroke.Color = COLOR_HOVER
+    barStroke.Thickness = 1
+    barStroke.Parent = bar
+
+    local knob = Instance.new("ImageButton")
+    knob.Size = UDim2.new(0, 18, 0, 18)
+    knob.Position = UDim2.new(0, 0, 0.5, -9)
+    knob.BackgroundColor3 = COLOR_NEON
+    knob.BorderSizePixel = 0
+    knob.AutoButtonColor = false
+    knob.Parent = bar
+
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(0, 9)
+    knobCorner.Parent = knob
+
+    local valueLabel = Instance.new("TextLabel")
+    valueLabel.Size = UDim2.new(0, 80, 1, 0)
+    valueLabel.Position = UDim2.new(1, -84, 0, 0)
+    valueLabel.BackgroundTransparency = 1
+    valueLabel.Font = Enum.Font.Gotham
+    valueLabel.TextSize = 14
+    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+    valueLabel.TextColor3 = COLOR_MUTED
+    valueLabel.Text = tostring(minValue)
+    valueLabel.Parent = bar
+
+    return container, bar, knob, valueLabel
+end
+
+local speedContainer, speedBar, speedKnob, speedValueLabel =
+    createSlider("Velocidad", WALK_MIN, WALK_MAX)
+speedContainer.Parent = content
+
+local jumpContainer, jumpBar, jumpKnob, jumpValueLabel =
+    createSlider("Salto", JUMP_MIN, JUMP_MAX)
+jumpContainer.Parent = content
+
+local flyContainer, flyBar, flyKnob, flyValueLabel =
+    createSlider("Velocidad de vuelo", FLY_MIN, FLY_MAX)
+flyContainer.Parent = content
+
+---------------------------------------------------------------------
+-- Toggle Vuelo
+---------------------------------------------------------------------
+local flyToggleFrame = Instance.new("Frame")
+flyToggleFrame.Size = UDim2.new(1, 0, 0, 32)
+flyToggleFrame.BackgroundTransparency = 1
+flyToggleFrame.Parent = content
+
+local flyLabel = Instance.new("TextLabel")
+flyLabel.Size = UDim2.new(0.7, 0, 1, 0)
+flyLabel.BackgroundTransparency = 1
+flyLabel.Font = Enum.Font.Gotham
+flyLabel.Text = "Vuelo"
+flyLabel.TextSize = 15
+flyLabel.TextColor3 = COLOR_TEXT
+flyLabel.TextXAlignment = Enum.TextXAlignment.Left
+flyLabel.Parent = flyToggleFrame
+
+local flyBox = Instance.new("TextButton")
+flyBox.Size = UDim2.new(0.26, 0, 0.8, 0)
+flyBox.Position = UDim2.new(0.74, 0, 0.1, 0)
+flyBox.BackgroundColor3 = COLOR_BG
+flyBox.Text = ""
+flyBox.AutoButtonColor = true
+flyBox.Parent = flyToggleFrame
+
+local flyBoxCorner = Instance.new("UICorner")
+flyBoxCorner.CornerRadius = UDim.new(0, 8)
+flyBoxCorner.Parent = flyBox
+
+local flyBoxStroke = Instance.new("UIStroke")
+flyBoxStroke.Color = COLOR_NEON
+flyBoxStroke.Thickness = 1
+flyBoxStroke.Parent = flyBox
+
+local flyCheck = Instance.new("TextLabel")
+flyCheck.Size = UDim2.new(1, 0, 1, 0)
+flyCheck.BackgroundTransparency = 1
+flyCheck.Font = Enum.Font.GothamBold
+flyCheck.Text = "✔"
+flyCheck.TextScaled = true
+flyCheck.TextColor3 = Color3.fromRGB(0, 255, 140)
+flyCheck.Visible = false
+flyCheck.Parent = flyBox
+
+---------------------------------------------------------------------
+-- Toggle FPS/Ping
+---------------------------------------------------------------------
+local statsToggleFrame = Instance.new("Frame")
+statsToggleFrame.Size = UDim2.new(1, 0, 0, 32)
+statsToggleFrame.BackgroundTransparency = 1
+statsToggleFrame.Parent = content
+
+local statsLabel = Instance.new("TextLabel")
+statsLabel.Size = UDim2.new(0.7, 0, 1, 0)
+statsLabel.BackgroundTransparency = 1
+statsLabel.Font = Enum.Font.Gotham
+statsLabel.Text = "Mostrar FPS/Ping"
+statsLabel.TextSize = 15
+statsLabel.TextColor3 = COLOR_TEXT
+statsLabel.TextXAlignment = Enum.TextXAlignment.Left
+statsLabel.Parent = statsToggleFrame
+
+local statsBox = Instance.new("TextButton")
+statsBox.Size = UDim2.new(0.26, 0, 0.8, 0)
+statsBox.Position = UDim2.new(0.74, 0, 0.1, 0)
+statsBox.BackgroundColor3 = COLOR_BG
+statsBox.Text = ""
+statsBox.AutoButtonColor = true
+statsBox.Parent = statsToggleFrame
+
+local statsBoxCorner = Instance.new("UICorner")
+statsBoxCorner.CornerRadius = UDim.new(0, 8)
+statsBoxCorner.Parent = statsBox
+
+local statsBoxStroke = Instance.new("UIStroke")
+statsBoxStroke.Color = COLOR_NEON
+statsBoxStroke.Thickness = 1
+statsBoxStroke.Parent = statsBox
+
+local statsCheck = Instance.new("TextLabel")
+statsCheck.Size = UDim2.new(1, 0, 1, 0)
+statsCheck.BackgroundTransparency = 1
+statsCheck.Font = Enum.Font.GothamBold
+statsCheck.Text = "✔"
+statsCheck.TextScaled = true
+statsCheck.TextColor3 = Color3.fromRGB(0, 255, 140)
+statsCheck.Visible = false
+statsCheck.Parent = statsBox
+
+-- Panel FPS/Ping (esquina superior derecha)
+local statsFrame = Instance.new("Frame")
+statsFrame.Size = UDim2.new(0, 150, 0, 46)
+statsFrame.Position = UDim2.new(1, -170, 0, 20)
+statsFrame.BackgroundColor3 = COLOR_BG
+statsFrame.BorderSizePixel = 0
+statsFrame.Visible = false
+statsFrame.ZIndex = 30
+statsFrame.Parent = screenGui
+
+local statsFrameCorner = Instance.new("UICorner")
+statsFrameCorner.CornerRadius = UDim.new(0, 10)
+statsFrameCorner.Parent = statsFrame
+
+local statsFrameStroke = Instance.new("UIStroke")
+statsFrameStroke.Color = COLOR_NEON
+statsFrameStroke.Thickness = 1
+statsFrameStroke.Parent = statsFrame
+
+local fpsLabel = Instance.new("TextLabel")
+fpsLabel.Size = UDim2.new(1, -8, 0.5, 0)
+fpsLabel.Position = UDim2.new(0, 4, 0, 0)
+fpsLabel.BackgroundTransparency = 1
+fpsLabel.Font = Enum.Font.Gotham
+fpsLabel.TextSize = 14
+fpsLabel.TextXAlignment = Enum.TextXAlignment.Left
+fpsLabel.TextColor3 = COLOR_TEXT
+fpsLabel.Text = "FPS: --"
+fpsLabel.ZIndex = 31
+fpsLabel.Parent = statsFrame
+
+local pingLabel = Instance.new("TextLabel")
+pingLabel.Size = UDim2.new(1, -8, 0.5, 0)
+pingLabel.Position = UDim2.new(0, 4, 0.5, 0)
+pingLabel.BackgroundTransparency = 1
+pingLabel.Font = Enum.Font.Gotham
+pingLabel.TextSize = 14
+pingLabel.TextXAlignment = Enum.TextXAlignment.Left
+pingLabel.TextColor3 = COLOR_TEXT
+pingLabel.Text = "Ping: --"
+pingLabel.ZIndex = 31
+pingLabel.Parent = statsFrame
+
+---------------------------------------------------------------------
+-- Toggle ESP
+---------------------------------------------------------------------
+local espToggleFrame = Instance.new("Frame")
+espToggleFrame.Size = UDim2.new(1, 0, 0, 32)
+espToggleFrame.BackgroundTransparency = 1
+espToggleFrame.Parent = content
+
+local espLabel = Instance.new("TextLabel")
+espLabel.Size = UDim2.new(0.7, 0, 1, 0)
+espLabel.BackgroundTransparency = 1
+espLabel.Font = Enum.Font.Gotham
+espLabel.Text = "ESP (nombres de jugadores)"
+espLabel.TextSize = 15
+espLabel.TextColor3 = COLOR_TEXT
+espLabel.TextXAlignment = Enum.TextXAlignment.Left
+espLabel.Parent = espToggleFrame
+
+local espBox = Instance.new("TextButton")
+espBox.Size = UDim2.new(0.26, 0, 0.8, 0)
+espBox.Position = UDim2.new(0.74, 0, 0.1, 0)
+espBox.BackgroundColor3 = COLOR_BG
+espBox.Text = ""
+espBox.AutoButtonColor = true
+espBox.Parent = espToggleFrame
+
+local espBoxCorner = Instance.new("UICorner")
+espBoxCorner.CornerRadius = UDim.new(0, 8)
+espBoxCorner.Parent = espBox
+
+local espBoxStroke = Instance.new("UIStroke")
+espBoxStroke.Color = COLOR_NEON
+espBoxStroke.Thickness = 1
+espBoxStroke.Parent = espBox
+
+local espCheck = Instance.new("TextLabel")
+espCheck.Size = UDim2.new(1, 0, 1, 0)
+espCheck.BackgroundTransparency = 1
+espCheck.Font = Enum.Font.GothamBold
+espCheck.Text = "✔"
+espCheck.TextScaled = true
+espCheck.TextColor3 = Color3.fromRGB(0, 255, 140)
+espCheck.Visible = false
+espCheck.Parent = espBox
+
+---------------------------------------------------------------------
+-- Círculo flotante (mini)
+---------------------------------------------------------------------
+local miniCircle = Instance.new("TextButton")
+miniCircle.Size = UDim2.new(0, 64, 0, 64)
+miniCircle.Position = UDim2.new(0, 10, 0.4, 0)
+miniCircle.BackgroundColor3 = COLOR_BG
+miniCircle.BorderSizePixel = 0
+miniCircle.Text = "LTCV2"
+miniCircle.TextColor3 = COLOR_TEXT
+miniCircle.Font = Enum.Font.GothamBold
+miniCircle.TextSize = 16
+miniCircle.Visible = false
+miniCircle.Parent = screenGui
+
+local miniCorner = Instance.new("UICorner")
+miniCorner.CornerRadius = UDim.new(1, 0)
+miniCorner.Parent = miniCircle
+
+local miniStroke = Instance.new("UIStroke")
+miniStroke.Color = COLOR_NEON
+miniStroke.Thickness = 1.5
+miniStroke.Parent = miniCircle
+
+miniCircle.Active = true
+miniCircle.Draggable = true
+
+---------------------------------------------------------------------
+-- Dropdown jugadores: lógica
+---------------------------------------------------------------------
+local function clearDropdown()
+    for _, child in ipairs(dropdownFrame:GetChildren()) do
+        if child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+end
+
+local function refreshPlayers()
+    clearDropdown()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player then
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1, -8, 0, 24)
+            btn.BackgroundColor3 = COLOR_PANEL_2
+            btn.TextColor3 = COLOR_TEXT
+            btn.Font = Enum.Font.Gotham
+            btn.TextSize = 14
+            btn.Text = plr.Name
+            btn.AutoButtonColor = true
+            btn.ZIndex = 21
+            btn.Parent = dropdownFrame
+
+            local c = Instance.new("UICorner")
+            c.CornerRadius = UDim.new(0, 8)
+            c.Parent = btn
+
+            btn.MouseButton1Click:Connect(function()
+                selectedPlayer = plr
+                dropdownButton.Text = "Seleccionado: " .. plr.Name
+                dropdownButton.TextColor3 = COLOR_TEXT
+                dropdownFrame.Visible = false
+            end)
+        end
+    end
+end
+
+Players.PlayerAdded:Connect(refreshPlayers)
+Players.PlayerRemoving:Connect(function(plr)
+    if selectedPlayer == plr then
+        selectedPlayer = nil
+        dropdownButton.Text = "Seleccionar jugador ▼"
+        dropdownButton.TextColor3 = COLOR_MUTED
+    end
+    refreshPlayers()
+end)
+
+refreshPlayers()
+
+---------------------------------------------------------------------
+-- Checkpoints: lógica
+---------------------------------------------------------------------
+local function clearCpDropdown()
+    for _, child in ipairs(cpDropdownFrame:GetChildren()) do
+        if child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+end
+
+local function refreshCheckpoints()
+    clearCpDropdown()
+    for i, info in ipairs(savedPositions) do
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -8, 0, 24)
+        btn.BackgroundColor3 = COLOR_PANEL_2
+        btn.TextColor3 = COLOR_TEXT
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 14
+        btn.Text = info.name
+        btn.AutoButtonColor = true
+        btn.ZIndex = 21
+        btn.Parent = cpDropdownFrame
+
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(0, 8)
+        c.Parent = btn
+
+        btn.MouseButton1Click:Connect(function()
+            selectedCheckpointIndex = i
+            cpDropdownButton.Text = "Seleccionado: " .. info.name
+            cpDropdownButton.TextColor3 = COLOR_TEXT
+            cpDropdownFrame.Visible = false
+        end)
+    end
+end
+
+saveCpBtn.MouseButton1Click:Connect(function()
+    local hum, hrp = getHumanoidAndRoot()
+    if not hum or not hrp then return end
+
+    local idx = #savedPositions + 1
+    local info = {
+        name = "Posición " .. tostring(idx),
+        cframe = hrp.CFrame
+    }
+    table.insert(savedPositions, info)
+    selectedCheckpointIndex = idx
+    cpDropdownButton.Text = "Seleccionado: " .. info.name
+    cpDropdownButton.TextColor3 = COLOR_TEXT
+    refreshCheckpoints()
+end)
+
+gotoCpBtn.MouseButton1Click:Connect(function()
+    if not selectedCheckpointIndex then return end
+    local info = savedPositions[selectedCheckpointIndex]
+    if not info then return end
+
+    local hum, hrp = getHumanoidAndRoot()
+    if not hum or not hrp then return end
+
+    safe(function()
+        hrp.CFrame = info.cframe
+    end)
+end)
+
+---------------------------------------------------------------------
+-- Teletransportar a jugador
+---------------------------------------------------------------------
+tpBtn.MouseButton1Click:Connect(function()
+    if not selectedPlayer or not selectedPlayer.Character then return end
+
+    local myChar = player.Character
+    if not myChar then return end
+
+    local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+    local otherHRP = selectedPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myHRP or not otherHRP then return end
+
+    -- Apagar preview y fly para evitar bugs
+    if spectating then
+        spectating = false
+        spectateTarget = nil
+        previewCheck.Visible = false
+        safe(function()
+            camera.CameraType = originalCameraType or Enum.CameraType.Custom
+            camera.CameraSubject = originalCameraSubject or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
+        end)
+    end
+
+    if flying then
+        flying = false
+        flyCheck.Visible = false
+        flyCFrame = nil
+        safe(function()
+            local hum, hrp2 = getHumanoidAndRoot()
+            if hum and hrp2 then
+                hrp2.Anchored = flyPrevAnchored
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
+        end)
+    end
+
+    safe(function()
+        myHRP.CFrame = otherHRP.CFrame + Vector3.new(2, 0, 2)
+    end)
+end)
+
+---------------------------------------------------------------------
+-- Vista previa (spectate)
+---------------------------------------------------------------------
+previewBox.MouseButton1Click:Connect(function()
+    if not selectedPlayer then return end
+
+    if not spectating then
+        -- Apagar vuelo para evitar mezcla rara
+        if flying then
+            flying = false
+            flyCheck.Visible = false
+            flyCFrame = nil
+            safe(function()
+                local hum, hrp = getHumanoidAndRoot()
+                if hum and hrp then
+                    hrp.Anchored = flyPrevAnchored
+                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                end
+            end)
+        end
+
+        spectating = true
+        spectateTarget = selectedPlayer
+        previewCheck.Visible = true
+
+        originalCameraType = camera.CameraType
+        originalCameraSubject = camera.CameraSubject
+
+        safe(function()
+            if spectateTarget.Character and spectateTarget.Character:FindFirstChild("Humanoid") then
+                camera.CameraType = Enum.CameraType.Attach
+                camera.CameraSubject = spectateTarget.Character:FindFirstChild("Humanoid")
+            else
+                spectating = false
+                spectateTarget = nil
+                previewCheck.Visible = false
+            end
+        end)
+    else
+        spectating = false
+        spectateTarget = nil
+        previewCheck.Visible = false
+        safe(function()
+            camera.CameraType = originalCameraType or Enum.CameraType.Custom
+            camera.CameraSubject = originalCameraSubject or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
+        end)
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if spectating and spectateTarget then
+        if not spectateTarget.Parent
+            or not spectateTarget.Character
+            or not spectateTarget.Character:FindFirstChild("Humanoid") then
+
+            spectating = false
+            spectateTarget = nil
+            previewCheck.Visible = false
+            safe(function()
+                camera.CameraType = originalCameraType or Enum.CameraType.Custom
+                camera.CameraSubject = originalCameraSubject or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
+            end)
+        else
+            safe(function()
+                camera.CameraSubject = spectateTarget.Character:FindFirstChild("Humanoid")
+            end)
+        end
+    end
+end)
+
+player.CharacterRemoving:Connect(function()
+    if spectating then
+        spectating = false
+        spectateTarget = nil
+        previewCheck.Visible = false
+        safe(function()
+            camera.CameraType = originalCameraType or Enum.CameraType.Custom
+            camera.CameraSubject = originalCameraSubject or nil
+        end)
+    end
+    if flying then
+        flying = false
+        flyCheck.Visible = false
+        flyCFrame = nil
+    end
+end)
+
+---------------------------------------------------------------------
+-- Sliders lógica
+---------------------------------------------------------------------
+local draggingSpeed = false
+local draggingJump  = false
+local draggingFly   = false
+
+local function setKnob(knob, bar, ratio)
+    knob.Position = UDim2.new(ratio, -9, 0.5, -9)
+end
+
+local function mapToValue(bar, x, minV, maxV)
+    if bar.AbsoluteSize.X <= 0 then
+        return minV, 0
+    end
+    local rel = math.clamp(x - bar.AbsolutePosition.X, 0, bar.AbsoluteSize.X)
+    local ratio = rel / bar.AbsoluteSize.X
+    local val = math.floor(minV + (maxV - minV) * ratio)
+    return val, ratio
+end
+
+local function applyWalkSpeed(v)
+    safe(function()
+        local char = player.Character or player.CharacterAdded:Wait()
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = v end
+    end)
+end
+
+local function applyJumpPower(v)
+    safe(function()
+        local char = player.Character or player.CharacterAdded:Wait()
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then hum.JumpPower = v end
+    end)
+end
+
+local function updateSpeedFromMouseX(x)
+    local v, ratio = mapToValue(speedBar, x, WALK_MIN, WALK_MAX)
+    speedValueLabel.Text = tostring(v)
+    setKnob(speedKnob, speedBar, ratio)
+    applyWalkSpeed(v)
+end
+
+local function updateJumpFromMouseX(x)
+    local v, ratio = mapToValue(jumpBar, x, JUMP_MIN, JUMP_MAX)
+    jumpValueLabel.Text = tostring(v)
+    setKnob(jumpKnob, jumpBar, ratio)
+    applyJumpPower(v)
+end
+
+local function updateFlyFromMouseX(x)
+    local v, ratio = mapToValue(flyBar, x, FLY_MIN, FLY_MAX)
+    flyValueLabel.Text = tostring(v)
+    setKnob(flyKnob, flyBar, ratio)
+    currentFlySpeed = v
+end
+
+speedKnob.MouseButton1Down:Connect(function()
+    draggingSpeed = true
+end)
+
+jumpKnob.MouseButton1Down:Connect(function()
+    draggingJump = true
+end)
+
+flyKnob.MouseButton1Down:Connect(function()
+    draggingFly = true
+end)
+
+speedBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        draggingSpeed = true
+        updateSpeedFromMouseX(input.Position.X)
+    end
+end)
+
+jumpBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        draggingJump = true
+        updateJumpFromMouseX(input.Position.X)
+    end
+end)
+
+flyBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        draggingFly = true
+        updateFlyFromMouseX(input.Position.X)
+    end
+end)
+
+mouse.Button1Up:Connect(function()
+    draggingSpeed = false
+    draggingJump  = false
+    draggingFly   = false
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        draggingSpeed = false
+        draggingJump  = false
+        draggingFly   = false
+    end
+end)
+
+local function initSliders()
+    speedValueLabel.Text = tostring(WALK_MIN)
+    jumpValueLabel.Text  = tostring(JUMP_MIN)
+    flyValueLabel.Text   = tostring(FLY_MIN)
+    setKnob(speedKnob, speedBar, 0)
+    setKnob(jumpKnob,  jumpBar,  0)
+    setKnob(flyKnob,   flyBar,   0)
+    applyWalkSpeed(WALK_MIN)
+    applyJumpPower(JUMP_MIN)
+    currentFlySpeed = FLY_MIN
+end
+
+initSliders()
+
+player.CharacterAdded:Connect(function(char)
+    char:WaitForChild("Humanoid", 5)
+    applyWalkSpeed(tonumber(speedValueLabel.Text) or WALK_MIN)
+    applyJumpPower(tonumber(jumpValueLabel.Text) or JUMP_MIN)
+    flying = false
+    flyCheck.Visible = false
+    flyCFrame = nil
+end)
+
+---------------------------------------------------------------------
+-- Vuelo: tipo script (LookVector cámara)
+---------------------------------------------------------------------
+flyBox.MouseButton1Click:Connect(function()
+    if not flying then
+        -- Apagar vista previa si estaba activa
+        if spectating then
+            spectating = false
+            spectateTarget = nil
+            previewCheck.Visible = false
+            safe(function()
+                camera.CameraType = originalCameraType or Enum.CameraType.Custom
+                camera.CameraSubject = originalCameraSubject or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
+            end)
+        end
+
+        flying = true
+        flyCheck.Visible = true
+        safe(function()
+            local hum, hrp = getHumanoidAndRoot()
+            if hum and hrp then
+                flyPrevAnchored = hrp.Anchored
+                hrp.Anchored = true
+                flyCFrame = hrp.CFrame
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
+        end)
+    else
+        flying = false
+        flyCheck.Visible = false
+        flyCFrame = nil
+        safe(function()
+            local hum, hrp = getHumanoidAndRoot()
+            if hum and hrp then
+                hrp.Anchored = flyPrevAnchored
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
+        end)
+    end
+end)
+
+---------------------------------------------------------------------
+-- FPS / Ping y sliders / dropdowns: RenderStepped
+---------------------------------------------------------------------
+local fpsAccum, fpsFrames = 0, 0
+
+RunService.RenderStepped:Connect(function(dt)
+    -- Reposicionar dropdowns cuando el HUD se mueva
+    if dropdownFrame.Visible then
+        updateDropdownPosition()
+    end
+    if cpDropdownFrame.Visible then
+        updateCpDropdownPosition()
+    end
+
+    -- Sliders mientras arrastras
+    if draggingSpeed then
+        updateSpeedFromMouseX(mouse.X)
+    end
+    if draggingJump then
+        updateJumpFromMouseX(mouse.X)
+    end
+    if draggingFly then
+        updateFlyFromMouseX(mouse.X)
+    end
+
+    -- FPS / Ping
+    if showStats then
+        fpsAccum = fpsAccum + dt
+        fpsFrames = fpsFrames + 1
+
+        if fpsAccum >= 0.5 then
+            local fps = math.floor(fpsFrames / fpsAccum + 0.5)
+            fpsAccum = 0
+            fpsFrames = 0
+
+            fpsLabel.Text = "FPS: " .. tostring(fps)
+            fpsLabel.TextColor3 = getFpsColor(fps)
+
+            safe(function()
+                local net = Stats.Network
+                if net and net.ServerStatsItem then
+                    local pingStat = net.ServerStatsItem["Data Ping"]
+                    if pingStat then
+                        local pingStr = pingStat:GetValueString() or "??"
+                        pingLabel.Text = "Ping: " .. pingStr
+
+                        local num = tonumber(pingStr:match("%d+"))
+                        if num then
+                            pingLabel.TextColor3 = getPingColor(num)
+                        else
+                            pingLabel.TextColor3 = COLOR_TEXT
+                        end
+                    else
+                        pingLabel.Text = "Ping: --"
+                        pingLabel.TextColor3 = COLOR_TEXT
+                    end
+                else
+                    pingLabel.Text = "Ping: --"
+                    pingLabel.TextColor3 = COLOR_TEXT
+                end
+            end)
+        end
+    end
+end)
+
+---------------------------------------------------------------------
+-- Vuelo movimiento: Heartbeat
+---------------------------------------------------------------------
+RunService.Heartbeat:Connect(function(dt)
+    if flying and currentFlySpeed > 0 and flyCFrame then
+        safe(function()
+            local hum, hrp = getHumanoidAndRoot()
+            if not hum or not hrp then return end
+
+            local moveDir = hum.MoveDirection
+            if moveDir.Magnitude > 0.05 then
+                local look = camera.CFrame.LookVector.Unit
+                local distance = currentFlySpeed * dt
+                flyCFrame = flyCFrame + look * distance
+                hrp.CFrame = flyCFrame
+            else
+                hrp.CFrame = flyCFrame
+            end
+        end)
+    end
+end)
+
+---------------------------------------------------------------------
+-- FPS/Ping toggle
+---------------------------------------------------------------------
+statsBox.MouseButton1Click:Connect(function()
+    showStats = not showStats
+    statsFrame.Visible = showStats
+    statsCheck.Visible = showStats
+end)
+
+---------------------------------------------------------------------
+-- ESP lógica
+---------------------------------------------------------------------
+local function clearAllESP()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character then
+            local head = plr.Character:FindFirstChild("Head")
+            if head then
+                local gui = head:FindFirstChild("LTCV2_ESP")
+                if gui then gui:Destroy() end
+            end
+        end
+    end
+end
+
+local function applyESPToCharacter(plr, char)
+    if not espEnabled then return end
+    if plr == player then return end
+    local head = char:FindFirstChild("Head")
+    if not head then return end
+
+    local existing = head:FindFirstChild("LTCV2_ESP")
+    if existing then existing:Destroy() end
+
+    local bill = Instance.new("BillboardGui")
+    bill.Name = "LTCV2_ESP"
+    bill.Adornee = head
+    bill.AlwaysOnTop = true
+    bill.Size = UDim2.new(0, 200, 0, 40)
+    bill.StudsOffset = Vector3.new(0, 3, 0)
+    bill.Parent = head
+
+    local label = Instance.new("TextLabel")
+    label.Name = "NameLabel"
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.GothamBold
+    label.TextColor3 = COLOR_NEON
+    label.TextStrokeTransparency = 0.2
+    label.TextStrokeColor3 = Color3.new(0, 0, 0)
+    label.TextScaled = true
+    label.Text = plr.Name
+    label.Parent = bill
+end
+
+local function applyESPForAll()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character then
+            applyESPToCharacter(plr, plr.Character)
+        end
+    end
+end
+
+local function onPlayerAddedESP(plr)
+    if plr == player then return end
+    plr.CharacterAdded:Connect(function(char)
+        if espEnabled then
+            safe(function()
+                char:WaitForChild("Head", 5)
+                applyESPToCharacter(plr, char)
+            end)
+        end
+    end)
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do
+    onPlayerAddedESP(plr)
+end
+
+Players.PlayerAdded:Connect(onPlayerAddedESP)
+Players.PlayerRemoving:Connect(function(plr)
+    if plr.Character then
+        local head = plr.Character:FindFirstChild("Head")
+        if head then
+            local gui = head:FindFirstChild("LTCV2_ESP")
+            if gui then gui:Destroy() end
+        end
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if not espEnabled then return end
+    local myChar = player.Character
+    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character then
+            local char = plr.Character
+            local head = char:FindFirstChild("Head")
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if head then
+                local gui = head:FindFirstChild("LTCV2_ESP")
+                if gui then
+                    local label = gui:FindFirstChild("NameLabel")
+                    if label then
+                        local distText = ""
+                        if myHRP and hrp then
+                            local d = (hrp.Position - myHRP.Position).Magnitude
+                            distText = string.format(" (%.0f)", d)
+                        end
+                        label.Text = plr.Name .. distText
+                    end
+                end
+            end
+        end
+    end
+end)
+
+espBox.MouseButton1Click:Connect(function()
+    espEnabled = not espEnabled
+    espCheck.Visible = espEnabled
+    if espEnabled then
+        applyESPForAll()
+    else
+        clearAllESP()
+    end
+end)
+
+---------------------------------------------------------------------
+-- Botones cerrar / minimizar / jugar
+---------------------------------------------------------------------
+closeBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = false
+    miniCircle.Visible = false
+end)
+
+minBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = false
+    miniCircle.Visible = true
+end)
+
+miniCircle.MouseButton1Click:Connect(function()
+    mainFrame.Visible = true
+    miniCircle.Visible = false
+end)
+
+playBtn.MouseButton1Click:Connect(function()
+    launcher.Visible = false
+    mainFrame.Visible = true
+end)
