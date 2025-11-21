@@ -1,6 +1,4 @@
---// LTCV2 HUB v22.1 - Noellin Edition (FIXED)
--- Pequeño log para confirmar que el HUB cargó
-warn("[LTCV2] HUB iniciado (v22.1 FIXED)")
+--// LTCV2 HUB v22.1 - Noellin Edition
 
 ---------------------------------------------------------------------
 -- Servicios
@@ -138,11 +136,10 @@ screenGui.DisplayOrder = 999999999
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
 screenGui.Parent = playerGui
 
--- FIX: usamos spawn/wait en vez de task.spawn/task.wait
-spawn(function()
+task.spawn(function()
 	while true do
 		screenGui.DisplayOrder = 999999999
-		wait(0.5)
+		task.wait(0.5)
 	end
 end)
 
@@ -500,15 +497,15 @@ miscCorner2.CornerRadius = UDim.new(0, 12)
 miscCorner2.Parent = miscContent
 
 local miscPadding = Instance.new("UIPadding")
-miscPadding.PaddingTop = UDim.new(0, 10)
-miscPadding.PaddingLeft = UDim.new(0, 12)
-miscPadding.PaddingRight = UDim.new(0, 12)
-miscPadding.PaddingBottom = UDim.new(0, 10)
+miscPadding.PaddingTop = UDimnew(0, 10)
+miscPadding.PaddingLeft = UDimnew(0, 12)
+miscPadding.PaddingRight = UDimnew(0, 12)
+miscPadding.PaddingBottom = UDimnew(0, 10)
 miscPadding.Parent = miscContent
 
 local miscLayout = Instance.new("UIListLayout")
 miscLayout.SortOrder = Enum.SortOrder.LayoutOrder
-miscLayout.Padding = UDim.new(0, 8)
+miscLayout.Padding = UDimnew(0, 8)
 miscLayout.Parent = miscContent
 
 local miscTitle = Instance.new("TextLabel")
@@ -622,7 +619,7 @@ dropdownFrameStroke.Parent = dropdownFrame
 
 local dropLayout = Instance.new("UIListLayout")
 dropLayout.SortOrder = Enum.SortOrder.LayoutOrder
-dropLayout.Padding = UDim.new(0, 4)
+dropLayout.Padding = UDimnew(0, 4)
 dropLayout.Parent = dropdownFrame
 
 dropLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
@@ -663,7 +660,7 @@ tpBtn.AutoButtonColor = true
 tpBtn.Parent = actionsFrame
 
 local tpBtnCorner = Instance.new("UICorner")
-tpBtnCorner.CornerRadius = UDim.new(0, 10)
+tpBtnCorner.CornerRadius = UDimnew(0, 10)
 tpBtnCorner.Parent = tpBtn
 
 local previewFrame = Instance.new("Frame")
@@ -691,7 +688,7 @@ previewBox.AutoButtonColor = true
 previewBox.Parent = previewFrame
 
 local previewCorner = Instance.new("UICorner")
-previewCorner.CornerRadius = UDim.new(0, 8)
+previewCorner.CornerRadius = UDimnew(0, 8)
 previewCorner.Parent = previewBox
 
 local previewStroke = Instance.new("UIStroke")
@@ -738,7 +735,7 @@ cpDropdownButton.AutoButtonColor = true
 cpDropdownButton.Parent = cpDropdownContainer
 
 local cpDropdownBtnCorner = Instance.new("UICorner")
-cpDropdownBtnCorner.CornerRadius = UDim.new(0, 8)
+cpDropdownBtnCorner.CornerRadius = UDimnew(0, 8)
 cpDropdownBtnCorner.Parent = cpDropdownButton
 
 local cpDropdownStroke = Instance.new("UIStroke")
@@ -758,7 +755,7 @@ cpDropdownFrame.ZIndex = 20
 cpDropdownFrame.Parent = mainFrame
 
 local cpDropdownFrameCorner = Instance.new("UICorner")
-cpDropdownFrameCorner.CornerRadius = UDim.new(0, 8)
+cpDropdownFrameCorner.CornerRadius = UDimnew(0, 8)
 cpDropdownFrameCorner.Parent = cpDropdownFrame
 
 local cpDropdownFrameStroke = Instance.new("UIStroke")
@@ -768,7 +765,7 @@ cpDropdownFrameStroke.Parent = cpDropdownFrame
 
 local cpDropLayout = Instance.new("UIListLayout")
 cpDropLayout.SortOrder = Enum.SortOrder.LayoutOrder
-cpDropLayout.Padding = UDim.new(0, 4)
+cpDropLayout.Padding = UDimnew(0, 4)
 cpDropLayout.Parent = cpDropdownFrame
 
 cpDropLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
@@ -809,7 +806,7 @@ saveCpBtn.AutoButtonColor = true
 saveCpBtn.Parent = cpActionsFrame
 
 local saveCpCorner = Instance.new("UICorner")
-saveCpCorner.CornerRadius = UDim.new(0, 10)
+saveCpCorner.CornerRadius = UDimnew(0, 10)
 saveCpCorner.Parent = saveCpBtn
 
 local gotoCpBtn = Instance.new("TextButton")
@@ -824,7 +821,7 @@ gotoCpBtn.AutoButtonColor = true
 gotoCpBtn.Parent = cpActionsFrame
 
 local gotoCpCorner = Instance.new("UICorner")
-gotoCpCorner.CornerRadius = UDim.new(0, 10)
+gotoCpCorner.CornerRadius = UDimnew(0, 10)
 gotoCpCorner.Parent = gotoCpBtn
 
 ---------------------------------------------------------------------
@@ -853,7 +850,7 @@ local function createSlider(titleText, minValue, maxValue)
 	bar.Parent = container
 
 	local barCorner = Instance.new("UICorner")
-	barCorner.CornerRadius = UDim.new(0, 10)
+	barCorner.CornerRadius = UDimnew(0, 10)
 	barCorner.Parent = bar
 
 	local barStroke = Instance.new("UIStroke")
@@ -870,7 +867,7 @@ local function createSlider(titleText, minValue, maxValue)
 	knob.Parent = bar
 
 	local knobCorner = Instance.new("UICorner")
-	knobCorner.CornerRadius = UDim.new(0, 9)
+	knobCorner.CornerRadius = UDimnew(0, 9)
 	knobCorner.Parent = knob
 
 	local valueLabel = Instance.new("TextLabel")
@@ -912,7 +909,7 @@ speedToggleBox.AutoButtonColor = true
 speedToggleBox.Parent = speedToggleFrame
 
 local speedToggleCorner = Instance.new("UICorner")
-speedToggleCorner.CornerRadius = UDim.new(0, 8)
+speedToggleCorner.CornerRadius = UDimnew(0, 8)
 speedToggleCorner.Parent = speedToggleBox
 
 local speedToggleStroke = Instance.new("UIStroke")
@@ -959,7 +956,7 @@ jumpToggleBox.AutoButtonColor = true
 jumpToggleBox.Parent = jumpToggleFrame
 
 local jumpToggleCorner = Instance.new("UICorner")
-jumpToggleCorner.CornerRadius = UDim.new(0, 8)
+jumpToggleCorner.CornerRadius = UDimnew(0, 8)
 jumpToggleCorner.Parent = jumpToggleBox
 
 local jumpToggleStroke = Instance.new("UIStroke")
@@ -1011,7 +1008,7 @@ flyBox.AutoButtonColor = true
 flyBox.Parent = flyToggleFrame
 
 local flyBoxCorner = Instance.new("UICorner")
-flyBoxCorner.CornerRadius = UDim.new(0, 8)
+flyBoxCorner.CornerRadius = UDimnew(0, 8)
 flyBoxCorner.Parent = flyBox
 
 local flyBoxStroke = Instance.new("UIStroke")
@@ -1054,7 +1051,7 @@ statsBox.AutoButtonColor = true
 statsBox.Parent = statsToggleFrame
 
 local statsBoxCorner = Instance.new("UICorner")
-statsBoxCorner.CornerRadius = UDim.new(0, 8)
+statsBoxCorner.CornerRadius = UDimnew(0, 8)
 statsBoxCorner.Parent = statsBox
 
 local statsBoxStroke = Instance.new("UIStroke")
@@ -1083,7 +1080,7 @@ statsFrame.ZIndex = 30
 statsFrame.Parent = screenGui
 
 local statsFrameCorner = Instance.new("UICorner")
-statsFrameCorner.CornerRadius = UDim.new(0, 10)
+statsFrameCorner.CornerRadius = UDimnew(0, 10)
 statsFrameCorner.Parent = statsFrame
 
 local statsFrameStroke = Instance.new("UIStroke")
@@ -1140,7 +1137,7 @@ espBox.AutoButtonColor = true
 espBox.Parent = espToggleFrame
 
 local espBoxCorner = Instance.new("UICorner")
-espBoxCorner.CornerRadius = UDim.new(0, 8)
+espBoxCorner.CornerRadius = UDimnew(0, 8)
 espBoxCorner.Parent = espBox
 
 local espBoxStroke = Instance.new("UIStroke")
@@ -1170,7 +1167,7 @@ resetBtn.AutoButtonColor = true
 resetBtn.Parent = content
 
 local resetCorner = Instance.new("UICorner")
-resetCorner.CornerRadius = UDim.new(0, 10)
+resetCorner.CornerRadius = UDimnew(0, 10)
 resetCorner.Parent = resetBtn
 
 ---------------------------------------------------------------------
@@ -1206,7 +1203,7 @@ freecamBox.AutoButtonColor = true
 freecamBox.Parent = freecamToggleFrame
 
 local freecamBoxCorner = Instance.new("UICorner")
-freecamBoxCorner.CornerRadius = UDim.new(0, 8)
+freecamBoxCorner.CornerRadius = UDimnew(0, 8)
 freecamBoxCorner.Parent = freecamBox
 
 local freecamBoxStroke = Instance.new("UIStroke")
@@ -1249,7 +1246,7 @@ infoBoxToggle.AutoButtonColor = true
 infoBoxToggle.Parent = infoToggleFrame
 
 local infoBoxCorner = Instance.new("UICorner")
-infoBoxCorner.CornerRadius = UDim.new(0, 8)
+infoBoxCorner.CornerRadius = UDimnew(0, 8)
 infoBoxCorner.Parent = infoBoxToggle
 
 local infoBoxStroke = Instance.new("UIStroke")
@@ -1268,7 +1265,7 @@ infoCheck.Visible = false
 infoCheck.Parent = infoBoxToggle
 
 ---------------------------------------------------------------------
--- Panel de información (solo texto)
+-- Panel de información (solo texto, fondo invisible)
 ---------------------------------------------------------------------
 local infoPanel = Instance.new("Frame")
 infoPanel.Size = UDim2.new(0, 180, 0, 80)
@@ -1340,7 +1337,7 @@ infoFlyLabel.ZIndex = 33
 infoFlyLabel.Parent = infoPanel
 
 ---------------------------------------------------------------------
--- Círculo flotante
+-- Círculo flotante (mini HUB)
 ---------------------------------------------------------------------
 local miniCircle = Instance.new("TextButton")
 miniCircle.Size = UDim2.new(0, 64, 0, 64)
@@ -1355,7 +1352,7 @@ miniCircle.Visible = false
 miniCircle.Parent = screenGui
 
 local miniCorner = Instance.new("UICorner")
-miniCorner.CornerRadius = UDim.new(1, 0)
+miniCorner.CornerRadius = UDimnew(1, 0)
 miniCorner.Parent = miniCircle
 
 local miniStroke = Instance.new("UIStroke")
@@ -1393,7 +1390,7 @@ local function refreshPlayers()
 			btn.Parent = dropdownFrame
 
 			local c = Instance.new("UICorner")
-			c.CornerRadius = UDim.new(0, 8)
+			c.CornerRadius = UDimnew(0, 8)
 			c.Parent = btn
 
 			btn.MouseButton1Click:Connect(function()
@@ -1444,7 +1441,7 @@ local function refreshCheckpoints()
 		btn.Parent = cpDropdownFrame
 
 		local c = Instance.new("UICorner")
-		c.CornerRadius = UDim.new(0, 8)
+		c.CornerRadius = UDimnew(0, 8)
 		c.Parent = btn
 
 		btn.MouseButton1Click:Connect(function()
@@ -1909,7 +1906,6 @@ flyBox.MouseButton1Click:Connect(ToggleFly)
 ---------------------------------------------------------------------
 local function ToggleFreecam()
 	if not freecamEnabled then
-		-- Apagar vista previa y vuelo
 		if spectating then
 			spectating = false
 			spectateTarget = nil
@@ -2046,7 +2042,6 @@ RunService.RenderStepped:Connect(function(dt)
 		end
 	end
 
-	-- Freecam movement
 	if freecamEnabled and freecamCFrame then
 		safe(function()
 			local move = Vector3.new()
@@ -2073,7 +2068,6 @@ RunService.RenderStepped:Connect(function(dt)
 				freecamCFrame = freecamCFrame + worldMove * speed * dt
 			end
 
-			-- La cámara sigue el CFrame
 			camera.CFrame = freecamCFrame
 		end)
 	end
@@ -2257,7 +2251,6 @@ espBox.MouseButton1Click:Connect(ToggleESP)
 -- MODO SEGURO / RESET
 ---------------------------------------------------------------------
 local function FullReset()
-	-- Vuelo
 	if flying then
 		flying = false
 		flyCheck.Visible = false
@@ -2271,7 +2264,6 @@ local function FullReset()
 		end)
 	end
 
-	-- Vista previa
 	if spectating then
 		spectating = false
 		spectateTarget = nil
@@ -2282,7 +2274,6 @@ local function FullReset()
 		end)
 	end
 
-	-- Freecam
 	if freecamEnabled then
 		freecamEnabled = false
 		freecamCheck.Visible = false
@@ -2297,21 +2288,18 @@ local function FullReset()
 		end)
 	end
 
-	-- ESP
 	if espEnabled then
 		espEnabled = false
 		espCheck.Visible = false
 		clearAllESP()
 	end
 
-	-- Stats
 	if showStats then
 		showStats = false
 		statsFrame.Visible = false
 		statsCheck.Visible = false
 	end
 
-	-- Speed / jump
 	if speedEnabled then
 		speedEnabled = false
 		speedToggleCheck.Visible = false
@@ -2321,14 +2309,12 @@ local function FullReset()
 		jumpToggleCheck.Visible = false
 	end
 
-	-- Info panel
 	if showInfoPanel then
 		showInfoPanel = false
 		infoCheck.Visible = false
 		infoPanel.Visible = false
 	end
 
-	-- Reset humanoid
 	safe(function()
 		local hum, _ = getHumanoidAndRoot()
 		if hum then
@@ -2337,14 +2323,12 @@ local function FullReset()
 		end
 	end)
 
-	-- Reset FOV
 	safe(function()
 		camera.FieldOfView = FOV_MIN
 	end)
 	fovValueLabel.Text = tostring(FOV_MIN)
 	setKnob(fovKnob, fovBar, 0)
 
-	-- Cerrar menús
 	dropdownFrame.Visible = false
 	cpDropdownFrame.Visible = false
 end
@@ -2406,7 +2390,6 @@ end)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 
-	-- Si estás escribiendo en el chat, no activamos nada
 	if UserInputService:GetFocusedTextBox() then
 		return
 	end
@@ -2440,3 +2423,5 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		ToggleFreecam()
 	end
 end)
+
+warn("[LTCV2] HUB cargado correctamente.")
