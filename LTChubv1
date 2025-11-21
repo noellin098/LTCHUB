@@ -1,4 +1,6 @@
---// LTCV2 HUB v22 - Noellin Edition
+--// LTCV2 HUB v22.1 - Noellin Edition (FIXED)
+-- Pequeño log para confirmar que el HUB cargó
+warn("[LTCV2] HUB iniciado (v22.1 FIXED)")
 
 ---------------------------------------------------------------------
 -- Servicios
@@ -136,10 +138,11 @@ screenGui.DisplayOrder = 999999999
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
 screenGui.Parent = playerGui
 
-task.spawn(function()
+-- FIX: usamos spawn/wait en vez de task.spawn/task.wait
+spawn(function()
 	while true do
 		screenGui.DisplayOrder = 999999999
-		task.wait(0.5)
+		wait(0.5)
 	end
 end)
 
@@ -497,10 +500,10 @@ miscCorner2.CornerRadius = UDim.new(0, 12)
 miscCorner2.Parent = miscContent
 
 local miscPadding = Instance.new("UIPadding")
-miscPadding.PaddingTop = UDim2.new(0, 10)
-miscPadding.PaddingLeft = UDim2.new(0, 12)
-miscPadding.PaddingRight = UDim2.new(0, 12)
-miscPadding.PaddingBottom = UDim2.new(0, 10)
+miscPadding.PaddingTop = UDim.new(0, 10)
+miscPadding.PaddingLeft = UDim.new(0, 12)
+miscPadding.PaddingRight = UDim.new(0, 12)
+miscPadding.PaddingBottom = UDim.new(0, 10)
 miscPadding.Parent = miscContent
 
 local miscLayout = Instance.new("UIListLayout")
@@ -1730,14 +1733,6 @@ fovKnob.MouseButton1Down:Connect(function()
 	draggingFov = true
 end)
 
-local function handleBarInput(bar, flagName, updateFunc, input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1
-		or input.UserInputType == Enum.UserInputType.Touch then
-		_G[flagName] = true
-		updateFunc(input.Position.X)
-	end
-end
-
 speedBar.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.UserInputType == Enum.UserInputType.Touch then
@@ -2411,6 +2406,7 @@ end)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 
+	-- Si estás escribiendo en el chat, no activamos nada
 	if UserInputService:GetFocusedTextBox() then
 		return
 	end
