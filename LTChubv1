@@ -1,7 +1,4 @@
---// LTCV2 HUB v18.2 - Noellin Edition
--- TP exacto, Vista previa, Vuelo, Speed/Jump con sliders y toggles,
--- Checkpoints, FPS/Ping, ESP, Keybinds, Mini círculo,
--- + BOTÓN MODO SEGURO / RESET.
+--// LTCV2 HUB v19 - Noellin Edition (base v18.2 + FOV)
 
 ---------------------------------------------------------------------
 -- Servicios
@@ -34,6 +31,7 @@ local COLOR_BAD  = Color3.fromRGB(255, 80, 80)
 local WALK_MIN, WALK_MAX = 16, 130
 local JUMP_MIN, JUMP_MAX = 50, 220
 local FLY_MIN,  FLY_MAX  = 0, 200
+local FOV_MIN,  FOV_MAX  = 70, 120 -- FOV
 
 ---------------------------------------------------------------------
 -- Estado
@@ -56,7 +54,6 @@ local selectedCheckpointIndex = nil
 local showStats = false
 local espEnabled = false
 
--- Speed / jump arrancan apagados
 local speedEnabled = false
 local jumpEnabled  = false
 
@@ -889,6 +886,11 @@ local flyContainer, flyBar, flyKnob, flyValueLabel =
     createSlider("Velocidad de vuelo", FLY_MIN, FLY_MAX)
 flyContainer.Parent = content
 
+-- Slider FOV (NUEVO)
+local fovContainer, fovBar, fovKnob, fovValueLabel =
+    createSlider("FOV (zoom de cámara)", FOV_MIN, FOV_MAX)
+fovContainer.Parent = content
+
 -- Toggle Vuelo
 local flyToggleFrame = Instance.new("Frame")
 flyToggleFrame.Size = UDim2.new(1, 0, 0, 32)
@@ -986,7 +988,7 @@ statsFrame.ZIndex = 30
 statsFrame.Parent = screenGui
 
 local statsFrameCorner = Instance.new("UICorner")
-statsFrameCorner.CornerRadius = UDim.new(0, 10)
+statsFrameCorner.CornerRadius = UDim.new(0, 10)  -- ✅ correcto
 statsFrameCorner.Parent = statsFrame
 
 local statsFrameStroke = Instance.new("UIStroke")
@@ -1355,6 +1357,7 @@ end)
 local draggingSpeed = false
 local draggingJump  = false
 local draggingFly   = false
+local draggingFov   = false
 
 local function setKnob(knob, bar, ratio)
     knob.Position = UDim2.new(ratio, -9, 0.5, -9)
@@ -1411,6 +1414,15 @@ local function updateFlyFromMouseX(x)
     currentFlySpeed = v
 end
 
+local function updateFovFromMouseX(x)
+    local v, ratio = mapToValue(fovBar, x, FOV_MIN, FOV_MAX)
+    fovValueLabel.Text = tostring(v)
+    setKnob(fovKnob, fovBar, ratio)
+    safe(function()
+        camera.FieldOfView = v
+    end)
+end
+
 speedKnob.MouseButton1Down:Connect(function()
     draggingSpeed = true
 end)
@@ -1421,6 +1433,10 @@ end)
 
 flyKnob.MouseButton1Down:Connect(function()
     draggingFly = true
+end)
+
+fovKnob.MouseButton1Down:Connect(function()
+    draggingFov = true
 end)
 
 speedBar.InputBegan:Connect(function(input)
@@ -1447,10 +1463,19 @@ flyBar.InputBegan:Connect(function(input)
     end
 end)
 
+fovBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        draggingFov = true
+        updateFovFromMouseX(input.Position.X)
+    end
+end)
+
 mouse.Button1Up:Connect(function()
     draggingSpeed = false
     draggingJump  = false
     draggingFly   = false
+    draggingFov   = false
 end)
 
 UserInputService.InputEnded:Connect(function(input)
@@ -1459,6 +1484,7 @@ UserInputService.InputEnded:Connect(function(input)
         draggingSpeed = false
         draggingJump  = false
         draggingFly   = false
+        draggingFov   = false
     end
 end)
 
@@ -1466,10 +1492,18 @@ local function initSliders()
     speedValueLabel.Text = tostring(WALK_MIN)
     jumpValueLabel.Text  = tostring(JUMP_MIN)
     flyValueLabel.Text   = tostring(FLY_MIN)
+    fovValueLabel.Text   = tostring(FOV_MIN)
+
     setKnob(speedKnob, speedBar, 0)
     setKnob(jumpKnob,  jumpBar,  0)
     setKnob(flyKnob,   flyBar,   0)
+    setKnob(fovKnob,   fovBar,   0)
+
     currentFlySpeed = FLY_MIN
+
+    safe(function()
+        camera.FieldOfView = FOV_MIN
+    end)
 end
 
 initSliders()
@@ -1583,6 +1617,9 @@ RunService.RenderStepped:Connect(function(dt)
     end
     if draggingFly then
         updateFlyFromMouseX(mouse.X)
+    end
+    if draggingFov then
+        updateFovFromMouseX(mouse.X)
     end
 
     if showStats then
@@ -1831,6 +1868,13 @@ local function FullReset()
         end
     end)
 
+    -- Resetear FOV
+    safe(function()
+        camera.FieldOfView = FOV_MIN
+    end)
+    fovValueLabel.Text = tostring(FOV_MIN)
+    setKnob(fovKnob, fovBar, 0)
+
     -- Cerrar menús
     dropdownFrame.Visible = false
     cpDropdownFrame.Visible = false
@@ -1839,7 +1883,7 @@ end
 resetBtn.MouseButton1Click:Connect(FullReset)
 
 ---------------------------------------------------------------------
--- Toggle HUB (para keybind OpenHub y clics)
+-- Toggle HUB
 ---------------------------------------------------------------------
 local function ToggleHub()
     if launcher.Visible and not mainFrame.Visible and not miniCircle.Visible then
