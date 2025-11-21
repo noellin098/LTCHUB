@@ -1,6 +1,4 @@
---// LTCV2 HUB v15 - Noellin Edition
--- Teleport, Vista previa, Velocidad, Salto, Fly (LookVector),
--- Checkpoints, FPS/Ping con colores, ESP nombres, contenido con scroll.
+--// LTCV2 HUB v22 - Noellin Edition
 
 ---------------------------------------------------------------------
 -- Servicios
@@ -15,6 +13,8 @@ local playerGui = player:WaitForChild("PlayerGui")
 local camera = workspace.CurrentCamera
 local mouse = player:GetMouse()
 
+local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
 ---------------------------------------------------------------------
 -- Colores / Config
 ---------------------------------------------------------------------
@@ -26,14 +26,14 @@ local COLOR_TEXT    = Color3.fromRGB(255, 255, 255)
 local COLOR_MUTED   = Color3.fromRGB(180, 180, 180)
 local COLOR_HOVER   = Color3.fromRGB(60, 60, 60)
 
--- Colores para calidad de FPS/Ping
-local COLOR_GOOD = Color3.fromRGB(0, 255, 0)    -- verde
-local COLOR_MED  = Color3.fromRGB(255, 220, 0)  -- amarillo
-local COLOR_BAD  = Color3.fromRGB(255, 80, 80)  -- rojo
+local COLOR_GOOD = Color3.fromRGB(0, 255, 0)
+local COLOR_MED  = Color3.fromRGB(255, 220, 0)
+local COLOR_BAD  = Color3.fromRGB(255, 80, 80)
 
 local WALK_MIN, WALK_MAX = 16, 130
 local JUMP_MIN, JUMP_MAX = 50, 220
 local FLY_MIN,  FLY_MAX  = 0, 200
+local FOV_MIN,  FOV_MAX  = 70, 120
 
 ---------------------------------------------------------------------
 -- Estado
@@ -50,54 +50,79 @@ local currentFlySpeed = FLY_MIN
 local flyPrevAnchored = false
 local flyCFrame = nil
 
--- Checkpoints
+local freecamEnabled = false
+local freecamCFrame = nil
+local freecamPrevAnchored = false
+local freecamKeys = {
+	W = false,
+	A = false,
+	S = false,
+	D = false,
+	Space = false,
+	Shift = false,
+}
+
 local savedPositions = {}
 local selectedCheckpointIndex = nil
 
--- FPS / Ping
 local showStats = false
-
--- ESP
 local espEnabled = false
+
+local speedEnabled = false
+local jumpEnabled  = false
+local showInfoPanel = false
+
+---------------------------------------------------------------------
+-- Keybinds
+---------------------------------------------------------------------
+local keybinds = {
+	OpenHub = Enum.KeyCode.N,
+	Fly     = Enum.KeyCode.F,
+	Preview = Enum.KeyCode.V,
+	ESP     = Enum.KeyCode.E,
+	Stats   = Enum.KeyCode.P,
+	Freecam = Enum.KeyCode.C,
+}
+
+local keybindButtons = {}
+local waitingRebind = nil
 
 ---------------------------------------------------------------------
 -- Helpers
 ---------------------------------------------------------------------
 local function safe(fn)
-    local ok, err = pcall(fn)
-    if not ok then
-        warn("[LTCV2] Error:", err)
-    end
+	local ok, err = pcall(fn)
+	if not ok then
+		warn("[LTCV2] Error:", err)
+	end
 end
 
 local function getHumanoidAndRoot()
-    local char = player.Character
-    if not char then return nil, nil end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    return hum, hrp
+	local char = player.Character
+	if not char then return nil, nil end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	return hum, hrp
 end
 
 local function getFpsColor(fps)
-    -- 60+ = verde, 30–59 = amarillo, <30 = rojo
-    if fps >= 60 then
-        return COLOR_GOOD
-    elseif fps >= 30 then
-        return COLOR_MED
-    else
-        return COLOR_BAD
-    end
+	if fps >= 60 then
+		return COLOR_GOOD
+	elseif fps >= 30 then
+		return COLOR_MED
+	else
+		return COLOR_BAD
+	end
 end
 
 local function getPingColor(ms)
-    -- 0–80 = verde, 81–150 = amarillo, 151+ = rojo
-    if ms <= 80 then
-        return COLOR_GOOD
-    elseif ms <= 150 then
-        return COLOR_MED
-    else
-        return COLOR_BAD
-    end
+	if ms <= 80 then
+		return COLOR_GOOD
+	elseif ms <= 150 then
+		return COLOR_MED
+	else
+		return COLOR_BAD
+	end
 end
 
 ---------------------------------------------------------------------
@@ -112,14 +137,14 @@ screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
 screenGui.Parent = playerGui
 
 task.spawn(function()
-    while true do
-        screenGui.DisplayOrder = 999999999
-        task.wait(0.5)
-    end
+	while true do
+		screenGui.DisplayOrder = 999999999
+		task.wait(0.5)
+	end
 end)
 
 ---------------------------------------------------------------------
--- Launcher (HUB de LTCV2)
+-- Launcher
 ---------------------------------------------------------------------
 local launcher = Instance.new("Frame")
 launcher.Size = UDim2.new(0, 360, 0, 170)
@@ -178,7 +203,7 @@ launcher.Active = true
 launcher.Draggable = true
 
 ---------------------------------------------------------------------
--- HUB principal
+-- Main HUB
 ---------------------------------------------------------------------
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 380, 0, 510)
@@ -247,7 +272,9 @@ local minCorner = Instance.new("UICorner")
 minCorner.CornerRadius = UDim.new(0, 8)
 minCorner.Parent = minBtn
 
+---------------------------------------------------------------------
 -- Sidebar
+---------------------------------------------------------------------
 local sideBar = Instance.new("Frame")
 sideBar.Size = UDim2.new(0, 80, 1, -46)
 sideBar.Position = UDim2.new(0, 0, 0, 46)
@@ -259,23 +286,58 @@ local sideCorner = Instance.new("UICorner")
 sideCorner.CornerRadius = UDim.new(0, 12)
 sideCorner.Parent = sideBar
 
+local sideLayout = Instance.new("UIListLayout")
+sideLayout.SortOrder = Enum.SortOrder.LayoutOrder
+sideLayout.Padding = UDim.new(0, 8)
+sideLayout.Parent = sideBar
+
 local homeBtn = Instance.new("TextButton")
 homeBtn.Size = UDim2.new(1, -16, 0, 50)
-homeBtn.Position = UDim2.new(0, 8, 0, 10)
 homeBtn.BackgroundColor3 = COLOR_NEON
 homeBtn.Text = "Hogar"
 homeBtn.Font = Enum.Font.GothamBold
 homeBtn.TextSize = 18
 homeBtn.TextColor3 = COLOR_TEXT
 homeBtn.AutoButtonColor = true
+homeBtn.LayoutOrder = 1
 homeBtn.Parent = sideBar
 
 local homeCorner = Instance.new("UICorner")
 homeCorner.CornerRadius = UDim.new(0, 10)
 homeCorner.Parent = homeBtn
 
+local keybindsBtn = Instance.new("TextButton")
+keybindsBtn.Size = UDim2.new(1, -16, 0, 50)
+keybindsBtn.BackgroundColor3 = COLOR_BG
+keybindsBtn.Text = "Keybinds"
+keybindsBtn.Font = Enum.Font.GothamBold
+keybindsBtn.TextSize = 16
+keybindsBtn.TextColor3 = COLOR_TEXT
+keybindsBtn.AutoButtonColor = true
+keybindsBtn.LayoutOrder = 2
+keybindsBtn.Parent = sideBar
+
+local keybindsCorner = Instance.new("UICorner")
+keybindsCorner.CornerRadius = UDim.new(0, 10)
+keybindsCorner.Parent = keybindsBtn
+
+local miscBtn = Instance.new("TextButton")
+miscBtn.Size = UDim2.new(1, -16, 0, 50)
+miscBtn.BackgroundColor3 = COLOR_BG
+miscBtn.Text = "Misc"
+miscBtn.Font = Enum.Font.GothamBold
+miscBtn.TextSize = 16
+miscBtn.TextColor3 = COLOR_TEXT
+miscBtn.AutoButtonColor = true
+miscBtn.LayoutOrder = 3
+miscBtn.Parent = sideBar
+
+local miscCorner = Instance.new("UICorner")
+miscCorner.CornerRadius = UDim.new(0, 10)
+miscCorner.Parent = miscBtn
+
 ---------------------------------------------------------------------
--- Contenido con SCROLL
+-- Home content
 ---------------------------------------------------------------------
 local content = Instance.new("ScrollingFrame")
 content.Size = UDim2.new(1, -80, 1, -46)
@@ -305,11 +367,201 @@ layout.Padding = UDim.new(0, 8)
 layout.Parent = content
 
 layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-    content.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
+	content.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
 end)
 
 ---------------------------------------------------------------------
--- Teleport / Dropdown botón
+-- Keybinds content
+---------------------------------------------------------------------
+local keybindsContent = Instance.new("Frame")
+keybindsContent.Size = UDim2.new(1, -80, 1, -46)
+keybindsContent.Position = UDim2.new(0, 80, 0, 46)
+keybindsContent.BackgroundColor3 = COLOR_PANEL_2
+keybindsContent.BorderSizePixel = 0
+keybindsContent.Visible = false
+keybindsContent.Parent = mainFrame
+
+local kbCorner = Instance.new("UICorner")
+kbCorner.CornerRadius = UDim.new(0, 12)
+kbCorner.Parent = keybindsContent
+
+local kbPadding = Instance.new("UIPadding")
+kbPadding.PaddingTop = UDim.new(0, 10)
+kbPadding.PaddingLeft = UDim.new(0, 12)
+kbPadding.PaddingRight = UDim.new(0, 12)
+kbPadding.PaddingBottom = UDim.new(0, 10)
+kbPadding.Parent = keybindsContent
+
+local kbLayout = Instance.new("UIListLayout")
+kbLayout.SortOrder = Enum.SortOrder.LayoutOrder
+kbLayout.Padding = UDim.new(0, 8)
+kbLayout.Parent = keybindsContent
+
+local kbTitle = Instance.new("TextLabel")
+kbTitle.Size = UDim2.new(1, 0, 0, 26)
+kbTitle.BackgroundTransparency = 1
+kbTitle.Font = Enum.Font.GothamBold
+kbTitle.Text = "Keybinds"
+kbTitle.TextSize = 20
+kbTitle.TextColor3 = COLOR_TEXT
+kbTitle.TextXAlignment = Enum.TextXAlignment.Left
+kbTitle.Parent = keybindsContent
+
+local kbDesc = Instance.new("TextLabel")
+kbDesc.Size = UDim2.new(1, 0, 0, 40)
+kbDesc.BackgroundTransparency = 1
+kbDesc.Font = Enum.Font.Gotham
+kbDesc.TextWrapped = true
+kbDesc.Text = "Toca un botón y luego presiona una tecla.\nLos keybinds no se activan si estás escribiendo en el chat."
+kbDesc.TextSize = 14
+kbDesc.TextColor3 = COLOR_MUTED
+kbDesc.TextXAlignment = Enum.TextXAlignment.Left
+kbDesc.Parent = keybindsContent
+
+local kbMobileWarn = Instance.new("TextLabel")
+kbMobileWarn.Size = UDim2.new(1, 0, 0, 36)
+kbMobileWarn.BackgroundTransparency = 1
+kbMobileWarn.Font = Enum.Font.Gotham
+kbMobileWarn.TextWrapped = true
+kbMobileWarn.Text = "⚠ Esta sección es SOLO para PC (teclado).\nEn móvil los keybinds no funcionan."
+kbMobileWarn.TextSize = 13
+kbMobileWarn.TextColor3 = Color3.fromRGB(255, 220, 0)
+kbMobileWarn.TextXAlignment = Enum.TextXAlignment.Left
+kbMobileWarn.Visible = isMobile
+kbMobileWarn.Parent = keybindsContent
+
+local function createKeyRow(displayName, actionId)
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, 0, 0, 32)
+	row.BackgroundTransparency = 1
+	row.Parent = keybindsContent
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, -100, 1, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Font = Enum.Font.Gotham
+	lbl.Text = displayName
+	lbl.TextSize = 15
+	lbl.TextColor3 = COLOR_TEXT
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Parent = row
+
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 80, 0, 28)
+	btn.Position = UDim2.new(1, -90, 0.5, -14)
+	btn.BackgroundColor3 = COLOR_BG
+	btn.Text = keybinds[actionId].Name
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 14
+	btn.TextColor3 = COLOR_TEXT
+	btn.AutoButtonColor = true
+	btn.Parent = row
+
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 8)
+	c.Parent = btn
+
+	local s = Instance.new("UIStroke")
+	s.Color = COLOR_NEON
+	s.Thickness = 1
+	s.Parent = btn
+
+	btn.MouseButton1Click:Connect(function()
+		waitingRebind = actionId
+		btn.Text = "..."
+	end)
+
+	keybindButtons[actionId] = btn
+end
+
+createKeyRow("Abrir/cerrar HUB", "OpenHub")
+createKeyRow("Vuelo", "Fly")
+createKeyRow("Vista previa", "Preview")
+createKeyRow("ESP", "ESP")
+createKeyRow("FPS/Ping", "Stats")
+createKeyRow("Freecam", "Freecam")
+
+---------------------------------------------------------------------
+-- Misc content
+---------------------------------------------------------------------
+local miscContent = Instance.new("Frame")
+miscContent.Size = UDim2.new(1, -80, 1, -46)
+miscContent.Position = UDim2.new(0, 80, 0, 46)
+miscContent.BackgroundColor3 = COLOR_PANEL_2
+miscContent.BorderSizePixel = 0
+miscContent.Visible = false
+miscContent.Parent = mainFrame
+
+local miscCorner2 = Instance.new("UICorner")
+miscCorner2.CornerRadius = UDim.new(0, 12)
+miscCorner2.Parent = miscContent
+
+local miscPadding = Instance.new("UIPadding")
+miscPadding.PaddingTop = UDim2.new(0, 10)
+miscPadding.PaddingLeft = UDim2.new(0, 12)
+miscPadding.PaddingRight = UDim2.new(0, 12)
+miscPadding.PaddingBottom = UDim2.new(0, 10)
+miscPadding.Parent = miscContent
+
+local miscLayout = Instance.new("UIListLayout")
+miscLayout.SortOrder = Enum.SortOrder.LayoutOrder
+miscLayout.Padding = UDim.new(0, 8)
+miscLayout.Parent = miscContent
+
+local miscTitle = Instance.new("TextLabel")
+miscTitle.Size = UDim2.new(1, 0, 0, 26)
+miscTitle.BackgroundTransparency = 1
+miscTitle.Font = Enum.Font.GothamBold
+miscTitle.Text = "Misc"
+miscTitle.TextSize = 20
+miscTitle.TextColor3 = COLOR_TEXT
+miscTitle.TextXAlignment = Enum.TextXAlignment.Left
+miscTitle.Parent = miscContent
+
+---------------------------------------------------------------------
+-- Cambiar pestañas
+---------------------------------------------------------------------
+local function setActiveTab(name)
+	if name == "Home" then
+		homeBtn.BackgroundColor3 = COLOR_NEON
+		keybindsBtn.BackgroundColor3 = COLOR_BG
+		miscBtn.BackgroundColor3 = COLOR_BG
+		content.Visible = true
+		keybindsContent.Visible = false
+		miscContent.Visible = false
+	elseif name == "Keybinds" then
+		homeBtn.BackgroundColor3 = COLOR_BG
+		keybindsBtn.BackgroundColor3 = COLOR_NEON
+		miscBtn.BackgroundColor3 = COLOR_BG
+		content.Visible = false
+		keybindsContent.Visible = true
+		miscContent.Visible = false
+	elseif name == "Misc" then
+		homeBtn.BackgroundColor3 = COLOR_BG
+		keybindsBtn.BackgroundColor3 = COLOR_BG
+		miscBtn.BackgroundColor3 = COLOR_NEON
+		content.Visible = false
+		keybindsContent.Visible = false
+		miscContent.Visible = true
+	end
+end
+
+setActiveTab("Home")
+
+homeBtn.MouseButton1Click:Connect(function()
+	setActiveTab("Home")
+end)
+
+keybindsBtn.MouseButton1Click:Connect(function()
+	setActiveTab("Keybinds")
+end)
+
+miscBtn.MouseButton1Click:Connect(function()
+	setActiveTab("Misc")
+end)
+
+---------------------------------------------------------------------
+-- Teleport UI (Hogar)
 ---------------------------------------------------------------------
 local tpTitle = Instance.new("TextLabel")
 tpTitle.Size = UDim2.new(1, 0, 0, 24)
@@ -345,9 +597,6 @@ dropdownStroke.Color = COLOR_NEON
 dropdownStroke.Thickness = 1
 dropdownStroke.Parent = dropdownButton
 
----------------------------------------------------------------------
--- Dropdown flotante (jugadores)
----------------------------------------------------------------------
 local dropdownFrame = Instance.new("ScrollingFrame")
 dropdownFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 dropdownFrame.ScrollBarThickness = 4
@@ -374,31 +623,26 @@ dropLayout.Padding = UDim.new(0, 4)
 dropLayout.Parent = dropdownFrame
 
 dropLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-    dropdownFrame.CanvasSize = UDim2.new(0, 0, 0, dropLayout.AbsoluteContentSize.Y + 8)
+	dropdownFrame.CanvasSize = UDim2.new(0, 0, 0, dropLayout.AbsoluteContentSize.Y + 8)
 end)
 
 local function updateDropdownPosition()
-    local btnPos = dropdownButton.AbsolutePosition
-    local btnSize = dropdownButton.AbsoluteSize
-    local guiPos = mainFrame.AbsolutePosition
-
-    local relX = btnPos.X - guiPos.X
-    local relY = btnPos.Y - guiPos.Y + btnSize.Y + 4
-
-    dropdownFrame.Position = UDim2.new(0, relX, 0, relY)
-    dropdownFrame.Size = UDim2.new(0, btnSize.X, 0, math.min(7*28 + 12, 220))
+	local btnPos = dropdownButton.AbsolutePosition
+	local btnSize = dropdownButton.AbsoluteSize
+	local guiPos = mainFrame.AbsolutePosition
+	local relX = btnPos.X - guiPos.X
+	local relY = btnPos.Y - guiPos.Y + btnSize.Y + 4
+	dropdownFrame.Position = UDim2.new(0, relX, 0, relY)
+	dropdownFrame.Size = UDim2.new(0, btnSize.X, 0, math.min(7 * 28 + 12, 220))
 end
 
 dropdownButton.MouseButton1Click:Connect(function()
-    dropdownFrame.Visible = not dropdownFrame.Visible
-    if dropdownFrame.Visible then
-        updateDropdownPosition()
-    end
+	dropdownFrame.Visible = not dropdownFrame.Visible
+	if dropdownFrame.Visible then
+		updateDropdownPosition()
+	end
 end)
 
----------------------------------------------------------------------
--- Botones Teleport + Vista previa
----------------------------------------------------------------------
 local actionsFrame = Instance.new("Frame")
 actionsFrame.Size = UDim2.new(1, 0, 0, 48)
 actionsFrame.BackgroundTransparency = 1
@@ -463,7 +707,7 @@ previewCheck.Visible = false
 previewCheck.Parent = previewBox
 
 ---------------------------------------------------------------------
--- Checkpoints UI
+-- Checkpoints (Hogar)
 ---------------------------------------------------------------------
 local cpTitle = Instance.new("TextLabel")
 cpTitle.Size = UDim2.new(1, 0, 0, 24)
@@ -499,7 +743,6 @@ cpDropdownStroke.Color = COLOR_NEON
 cpDropdownStroke.Thickness = 1
 cpDropdownStroke.Parent = cpDropdownButton
 
--- Dropdown flotante (checkpoints)
 local cpDropdownFrame = Instance.new("ScrollingFrame")
 cpDropdownFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 cpDropdownFrame.ScrollBarThickness = 4
@@ -526,31 +769,26 @@ cpDropLayout.Padding = UDim.new(0, 4)
 cpDropLayout.Parent = cpDropdownFrame
 
 cpDropLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-    cpDropdownFrame.CanvasSize = UDim2.new(0, 0, 0, cpDropLayout.AbsoluteContentSize.Y + 8)
+	cpDropdownFrame.CanvasSize = UDim2.new(0, 0, 0, cpDropLayout.AbsoluteContentSize.Y + 8)
 end)
 
 local function updateCpDropdownPosition()
-    local btnPos = cpDropdownButton.AbsolutePosition
-    local btnSize = cpDropdownButton.AbsoluteSize
-    local guiPos = mainFrame.AbsolutePosition
-
-    local relX = btnPos.X - guiPos.X
-    local relY = btnPos.Y - guiPos.Y + btnSize.Y + 4
-
-    cpDropdownFrame.Position = UDim2.new(0, relX, 0, relY)
-    cpDropdownFrame.Size = UDim2.new(0, btnSize.X, 0, math.min(7*28 + 12, 220))
+	local btnPos = cpDropdownButton.AbsolutePosition
+	local btnSize = cpDropdownButton.AbsoluteSize
+	local guiPos = mainFrame.AbsolutePosition
+	local relX = btnPos.X - guiPos.X
+	local relY = btnPos.Y - guiPos.Y + btnSize.Y + 4
+	cpDropdownFrame.Position = UDim2.new(0, relX, 0, relY)
+	cpDropdownFrame.Size = UDim2.new(0, btnSize.X, 0, math.min(7 * 28 + 12, 220))
 end
 
 cpDropdownButton.MouseButton1Click:Connect(function()
-    cpDropdownFrame.Visible = not cpDropdownFrame.Visible
-    if cpDropdownFrame.Visible then
-        updateCpDropdownPosition()
-    end
+	cpDropdownFrame.Visible = not cpDropdownFrame.Visible
+	if cpDropdownFrame.Visible then
+		updateCpDropdownPosition()
+	end
 end)
 
----------------------------------------------------------------------
--- Botones Checkpoints
----------------------------------------------------------------------
 local cpActionsFrame = Instance.new("Frame")
 cpActionsFrame.Size = UDim2.new(1, 0, 0, 40)
 cpActionsFrame.BackgroundTransparency = 1
@@ -587,80 +825,165 @@ gotoCpCorner.CornerRadius = UDim.new(0, 10)
 gotoCpCorner.Parent = gotoCpBtn
 
 ---------------------------------------------------------------------
--- Sliders (Velocidad, Salto, Velocidad de vuelo)
+-- Sliders / Toggles (Hogar)
 ---------------------------------------------------------------------
 local function createSlider(titleText, minValue, maxValue)
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, 0, 0, 70)
-    container.BackgroundTransparency = 1
+	local container = Instance.new("Frame")
+	container.Size = UDim2.new(1, 0, 0, 70)
+	container.BackgroundTransparency = 1
 
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 0, 22)
-    label.BackgroundTransparency = 1
-    label.Font = Enum.Font.GothamBold
-    label.Text = titleText
-    label.TextSize = 16
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.TextColor3 = COLOR_TEXT
-    label.Parent = container
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 0, 22)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.Text = titleText
+	label.TextSize = 16
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextColor3 = COLOR_TEXT
+	label.Parent = container
 
-    local bar = Instance.new("Frame")
-    bar.Size = UDim2.new(1, 0, 0, 26)
-    bar.Position = UDim2.new(0, 0, 0, 28)
-    bar.BackgroundColor3 = COLOR_BG
-    bar.BorderSizePixel = 0
-    bar.Parent = container
+	local bar = Instance.new("Frame")
+	bar.Size = UDim2.new(1, 0, 0, 26)
+	bar.Position = UDim2.new(0, 0, 0, 28)
+	bar.BackgroundColor3 = COLOR_BG
+	bar.BorderSizePixel = 0
+	bar.Parent = container
 
-    local barCorner = Instance.new("UICorner")
-    barCorner.CornerRadius = UDim.new(0, 10)
-    barCorner.Parent = bar
+	local barCorner = Instance.new("UICorner")
+	barCorner.CornerRadius = UDim.new(0, 10)
+	barCorner.Parent = bar
 
-    local barStroke = Instance.new("UIStroke")
-    barStroke.Color = COLOR_HOVER
-    barStroke.Thickness = 1
-    barStroke.Parent = bar
+	local barStroke = Instance.new("UIStroke")
+	barStroke.Color = COLOR_HOVER
+	barStroke.Thickness = 1
+	barStroke.Parent = bar
 
-    local knob = Instance.new("ImageButton")
-    knob.Size = UDim2.new(0, 18, 0, 18)
-    knob.Position = UDim2.new(0, 0, 0.5, -9)
-    knob.BackgroundColor3 = COLOR_NEON
-    knob.BorderSizePixel = 0
-    knob.AutoButtonColor = false
-    knob.Parent = bar
+	local knob = Instance.new("ImageButton")
+	knob.Size = UDim2.new(0, 18, 0, 18)
+	knob.Position = UDim2.new(0, 0, 0.5, -9)
+	knob.BackgroundColor3 = COLOR_NEON
+	knob.BorderSizePixel = 0
+	knob.AutoButtonColor = false
+	knob.Parent = bar
 
-    local knobCorner = Instance.new("UICorner")
-    knobCorner.CornerRadius = UDim.new(0, 9)
-    knobCorner.Parent = knob
+	local knobCorner = Instance.new("UICorner")
+	knobCorner.CornerRadius = UDim.new(0, 9)
+	knobCorner.Parent = knob
 
-    local valueLabel = Instance.new("TextLabel")
-    valueLabel.Size = UDim2.new(0, 80, 1, 0)
-    valueLabel.Position = UDim2.new(1, -84, 0, 0)
-    valueLabel.BackgroundTransparency = 1
-    valueLabel.Font = Enum.Font.Gotham
-    valueLabel.TextSize = 14
-    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
-    valueLabel.TextColor3 = COLOR_MUTED
-    valueLabel.Text = tostring(minValue)
-    valueLabel.Parent = bar
+	local valueLabel = Instance.new("TextLabel")
+	valueLabel.Size = UDim2.new(0, 80, 1, 0)
+	valueLabel.Position = UDim2.new(1, -84, 0, 0)
+	valueLabel.BackgroundTransparency = 1
+	valueLabel.Font = Enum.Font.Gotham
+	valueLabel.TextSize = 14
+	valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+	valueLabel.TextColor3 = COLOR_MUTED
+	valueLabel.Text = tostring(minValue)
+	valueLabel.Parent = bar
 
-    return container, bar, knob, valueLabel
+	return container, bar, knob, valueLabel
 end
 
+-- Toggle velocidad
+local speedToggleFrame = Instance.new("Frame")
+speedToggleFrame.Size = UDim2.new(1, 0, 0, 32)
+speedToggleFrame.BackgroundTransparency = 1
+speedToggleFrame.Parent = content
+
+local speedToggleLabel = Instance.new("TextLabel")
+speedToggleLabel.Size = UDim2.new(0.7, 0, 1, 0)
+speedToggleLabel.BackgroundTransparency = 1
+speedToggleLabel.Font = Enum.Font.Gotham
+speedToggleLabel.Text = "Activar velocidad"
+speedToggleLabel.TextSize = 15
+speedToggleLabel.TextColor3 = COLOR_TEXT
+speedToggleLabel.TextXAlignment = Enum.TextXAlignment.Left
+speedToggleLabel.Parent = speedToggleFrame
+
+local speedToggleBox = Instance.new("TextButton")
+speedToggleBox.Size = UDim2.new(0.26, 0, 0.8, 0)
+speedToggleBox.Position = UDim2.new(0.74, 0, 0.1, 0)
+speedToggleBox.BackgroundColor3 = COLOR_BG
+speedToggleBox.Text = ""
+speedToggleBox.AutoButtonColor = true
+speedToggleBox.Parent = speedToggleFrame
+
+local speedToggleCorner = Instance.new("UICorner")
+speedToggleCorner.CornerRadius = UDim.new(0, 8)
+speedToggleCorner.Parent = speedToggleBox
+
+local speedToggleStroke = Instance.new("UIStroke")
+speedToggleStroke.Color = COLOR_NEON
+speedToggleStroke.Thickness = 1
+speedToggleStroke.Parent = speedToggleBox
+
+local speedToggleCheck = Instance.new("TextLabel")
+speedToggleCheck.Size = UDim2.new(1, 0, 1, 0)
+speedToggleCheck.BackgroundTransparency = 1
+speedToggleCheck.Font = Enum.Font.GothamBold
+speedToggleCheck.Text = "✔"
+speedToggleCheck.TextScaled = true
+speedToggleCheck.TextColor3 = Color3.fromRGB(0, 255, 140)
+speedToggleCheck.Visible = false
+speedToggleCheck.Parent = speedToggleBox
+
 local speedContainer, speedBar, speedKnob, speedValueLabel =
-    createSlider("Velocidad", WALK_MIN, WALK_MAX)
+	createSlider("Velocidad", WALK_MIN, WALK_MAX)
 speedContainer.Parent = content
 
+-- Toggle salto
+local jumpToggleFrame = Instance.new("Frame")
+jumpToggleFrame.Size = UDim2.new(1, 0, 0, 32)
+jumpToggleFrame.BackgroundTransparency = 1
+jumpToggleFrame.Parent = content
+
+local jumpToggleLabel = Instance.new("TextLabel")
+jumpToggleLabel.Size = UDim2.new(0.7, 0, 1, 0)
+jumpToggleLabel.BackgroundTransparency = 1
+jumpToggleLabel.Font = Enum.Font.Gotham
+jumpToggleLabel.Text = "Activar salto"
+jumpToggleLabel.TextSize = 15
+jumpToggleLabel.TextColor3 = COLOR_TEXT
+jumpToggleLabel.TextXAlignment = Enum.TextXAlignment.Left
+jumpToggleLabel.Parent = jumpToggleFrame
+
+local jumpToggleBox = Instance.new("TextButton")
+jumpToggleBox.Size = UDim2.new(0.26, 0, 0.8, 0)
+jumpToggleBox.Position = UDim2.new(0.74, 0, 0.1, 0)
+jumpToggleBox.BackgroundColor3 = COLOR_BG
+jumpToggleBox.Text = ""
+jumpToggleBox.AutoButtonColor = true
+jumpToggleBox.Parent = jumpToggleFrame
+
+local jumpToggleCorner = Instance.new("UICorner")
+jumpToggleCorner.CornerRadius = UDim.new(0, 8)
+jumpToggleCorner.Parent = jumpToggleBox
+
+local jumpToggleStroke = Instance.new("UIStroke")
+jumpToggleStroke.Color = COLOR_NEON
+jumpToggleStroke.Thickness = 1
+jumpToggleStroke.Parent = jumpToggleBox
+
+local jumpToggleCheck = Instance.new("TextLabel")
+jumpToggleCheck.Size = UDim2.new(1, 0, 1, 0)
+jumpToggleCheck.BackgroundTransparency = 1
+jumpToggleCheck.Font = Enum.Font.GothamBold
+jumpToggleCheck.Text = "✔"
+jumpToggleCheck.TextScaled = true
+jumpToggleCheck.TextColor3 = Color3.fromRGB(0, 255, 140)
+jumpToggleCheck.Visible = false
+jumpToggleCheck.Parent = jumpToggleBox
+
 local jumpContainer, jumpBar, jumpKnob, jumpValueLabel =
-    createSlider("Salto", JUMP_MIN, JUMP_MAX)
+	createSlider("Salto", JUMP_MIN, JUMP_MAX)
 jumpContainer.Parent = content
 
+-- Slider velocidad vuelo
 local flyContainer, flyBar, flyKnob, flyValueLabel =
-    createSlider("Velocidad de vuelo", FLY_MIN, FLY_MAX)
+	createSlider("Velocidad de vuelo", FLY_MIN, FLY_MAX)
 flyContainer.Parent = content
 
----------------------------------------------------------------------
 -- Toggle Vuelo
----------------------------------------------------------------------
 local flyToggleFrame = Instance.new("Frame")
 flyToggleFrame.Size = UDim2.new(1, 0, 0, 32)
 flyToggleFrame.BackgroundTransparency = 1
@@ -703,9 +1026,7 @@ flyCheck.TextColor3 = Color3.fromRGB(0, 255, 140)
 flyCheck.Visible = false
 flyCheck.Parent = flyBox
 
----------------------------------------------------------------------
 -- Toggle FPS/Ping
----------------------------------------------------------------------
 local statsToggleFrame = Instance.new("Frame")
 statsToggleFrame.Size = UDim2.new(1, 0, 0, 32)
 statsToggleFrame.BackgroundTransparency = 1
@@ -748,7 +1069,7 @@ statsCheck.TextColor3 = Color3.fromRGB(0, 255, 140)
 statsCheck.Visible = false
 statsCheck.Parent = statsBox
 
--- Panel FPS/Ping (esquina superior derecha)
+-- Panel FPS/Ping
 local statsFrame = Instance.new("Frame")
 statsFrame.Size = UDim2.new(0, 150, 0, 46)
 statsFrame.Position = UDim2.new(1, -170, 0, 20)
@@ -791,9 +1112,7 @@ pingLabel.Text = "Ping: --"
 pingLabel.ZIndex = 31
 pingLabel.Parent = statsFrame
 
----------------------------------------------------------------------
 -- Toggle ESP
----------------------------------------------------------------------
 local espToggleFrame = Instance.new("Frame")
 espToggleFrame.Size = UDim2.new(1, 0, 0, 32)
 espToggleFrame.BackgroundTransparency = 1
@@ -836,8 +1155,189 @@ espCheck.TextColor3 = Color3.fromRGB(0, 255, 140)
 espCheck.Visible = false
 espCheck.Parent = espBox
 
+-- Botón Modo seguro / Reset
+local resetBtn = Instance.new("TextButton")
+resetBtn.Size = UDim2.new(1, 0, 0, 36)
+resetBtn.BackgroundColor3 = COLOR_NEON
+resetBtn.Text = "Modo seguro (Reset)"
+resetBtn.Font = Enum.Font.GothamBold
+resetBtn.TextSize = 16
+resetBtn.TextColor3 = COLOR_TEXT
+resetBtn.AutoButtonColor = true
+resetBtn.Parent = content
+
+local resetCorner = Instance.new("UICorner")
+resetCorner.CornerRadius = UDim.new(0, 10)
+resetCorner.Parent = resetBtn
+
 ---------------------------------------------------------------------
--- Círculo flotante (mini)
+-- Misc: FOV, Freecam, Info panel
+---------------------------------------------------------------------
+-- Slider FOV
+local fovContainer, fovBar, fovKnob, fovValueLabel =
+	createSlider("FOV (zoom de cámara)", FOV_MIN, FOV_MAX)
+fovContainer.Parent = miscContent
+
+-- Toggle Freecam
+local freecamToggleFrame = Instance.new("Frame")
+freecamToggleFrame.Size = UDim2.new(1, 0, 0, 32)
+freecamToggleFrame.BackgroundTransparency = 1
+freecamToggleFrame.Parent = miscContent
+
+local freecamLabel = Instance.new("TextLabel")
+freecamLabel.Size = UDim2.new(0.7, 0, 1, 0)
+freecamLabel.BackgroundTransparency = 1
+freecamLabel.Font = Enum.Font.Gotham
+freecamLabel.Text = "Freecam (cámara libre)"
+freecamLabel.TextSize = 15
+freecamLabel.TextColor3 = COLOR_TEXT
+freecamLabel.TextXAlignment = Enum.TextXAlignment.Left
+freecamLabel.Parent = freecamToggleFrame
+
+local freecamBox = Instance.new("TextButton")
+freecamBox.Size = UDim2.new(0.26, 0, 0.8, 0)
+freecamBox.Position = UDim2.new(0.74, 0, 0.1, 0)
+freecamBox.BackgroundColor3 = COLOR_BG
+freecamBox.Text = ""
+freecamBox.AutoButtonColor = true
+freecamBox.Parent = freecamToggleFrame
+
+local freecamBoxCorner = Instance.new("UICorner")
+freecamBoxCorner.CornerRadius = UDim.new(0, 8)
+freecamBoxCorner.Parent = freecamBox
+
+local freecamBoxStroke = Instance.new("UIStroke")
+freecamBoxStroke.Color = COLOR_NEON
+freecamBoxStroke.Thickness = 1
+freecamBoxStroke.Parent = freecamBox
+
+local freecamCheck = Instance.new("TextLabel")
+freecamCheck.Size = UDim2.new(1, 0, 1, 0)
+freecamCheck.BackgroundTransparency = 1
+freecamCheck.Font = Enum.Font.GothamBold
+freecamCheck.Text = "✔"
+freecamCheck.TextScaled = true
+freecamCheck.TextColor3 = Color3.fromRGB(0, 255, 140)
+freecamCheck.Visible = false
+freecamCheck.Parent = freecamBox
+
+-- Toggle Info panel
+local infoToggleFrame = Instance.new("Frame")
+infoToggleFrame.Size = UDim2.new(1, 0, 0, 32)
+infoToggleFrame.BackgroundTransparency = 1
+infoToggleFrame.Parent = miscContent
+
+local infoLabelToggle = Instance.new("TextLabel")
+infoLabelToggle.Size = UDim2.new(0.7, 0, 1, 0)
+infoLabelToggle.BackgroundTransparency = 1
+infoLabelToggle.Font = Enum.Font.Gotham
+infoLabelToggle.Text = "Información del jugador"
+infoLabelToggle.TextSize = 15
+infoLabelToggle.TextColor3 = COLOR_TEXT
+infoLabelToggle.TextXAlignment = Enum.TextXAlignment.Left
+infoLabelToggle.Parent = infoToggleFrame
+
+local infoBoxToggle = Instance.new("TextButton")
+infoBoxToggle.Size = UDim2.new(0.26, 0, 0.8, 0)
+infoBoxToggle.Position = UDim2.new(0.74, 0, 0.1, 0)
+infoBoxToggle.BackgroundColor3 = COLOR_BG
+infoBoxToggle.Text = ""
+infoBoxToggle.AutoButtonColor = true
+infoBoxToggle.Parent = infoToggleFrame
+
+local infoBoxCorner = Instance.new("UICorner")
+infoBoxCorner.CornerRadius = UDim.new(0, 8)
+infoBoxCorner.Parent = infoBoxToggle
+
+local infoBoxStroke = Instance.new("UIStroke")
+infoBoxStroke.Color = COLOR_NEON
+infoBoxStroke.Thickness = 1
+infoBoxStroke.Parent = infoBoxToggle
+
+local infoCheck = Instance.new("TextLabel")
+infoCheck.Size = UDim2.new(1, 0, 1, 0)
+infoCheck.BackgroundTransparency = 1
+infoCheck.Font = Enum.Font.GothamBold
+infoCheck.Text = "✔"
+infoCheck.TextScaled = true
+infoCheck.TextColor3 = Color3.fromRGB(0, 255, 140)
+infoCheck.Visible = false
+infoCheck.Parent = infoBoxToggle
+
+---------------------------------------------------------------------
+-- Panel de información (solo texto)
+---------------------------------------------------------------------
+local infoPanel = Instance.new("Frame")
+infoPanel.Size = UDim2.new(0, 180, 0, 80)
+infoPanel.Position = UDim2.new(1, -190, 0, 70)
+infoPanel.BackgroundTransparency = 1
+infoPanel.BorderSizePixel = 0
+infoPanel.ZIndex = 32
+infoPanel.Visible = false
+infoPanel.Parent = screenGui
+
+local infoNameLabel = Instance.new("TextLabel")
+infoNameLabel.Size = UDim2.new(1, 0, 0, 18)
+infoNameLabel.Position = UDim2.new(0, 0, 0, 0)
+infoNameLabel.BackgroundTransparency = 1
+infoNameLabel.Font = Enum.Font.GothamBold
+infoNameLabel.TextSize = 15
+infoNameLabel.TextColor3 = COLOR_TEXT
+infoNameLabel.TextXAlignment = Enum.TextXAlignment.Right
+infoNameLabel.Text = ""
+infoNameLabel.ZIndex = 33
+infoNameLabel.Parent = infoPanel
+
+local infoHpLabel = Instance.new("TextLabel")
+infoHpLabel.Size = UDim2.new(1, 0, 0, 16)
+infoHpLabel.Position = UDim2.new(0, 0, 0, 20)
+infoHpLabel.BackgroundTransparency = 1
+infoHpLabel.Font = Enum.Font.Gotham
+infoHpLabel.TextSize = 14
+infoHpLabel.TextColor3 = COLOR_TEXT
+infoHpLabel.TextXAlignment = Enum.TextXAlignment.Right
+infoHpLabel.Text = ""
+infoHpLabel.ZIndex = 33
+infoHpLabel.Parent = infoPanel
+
+local infoSpeedLabel = Instance.new("TextLabel")
+infoSpeedLabel.Size = UDim2.new(1, 0, 0, 16)
+infoSpeedLabel.Position = UDim2.new(0, 0, 0, 36)
+infoSpeedLabel.BackgroundTransparency = 1
+infoSpeedLabel.Font = Enum.Font.Gotham
+infoSpeedLabel.TextSize = 14
+infoSpeedLabel.TextColor3 = COLOR_TEXT
+infoSpeedLabel.TextXAlignment = Enum.TextXAlignment.Right
+infoSpeedLabel.Text = ""
+infoSpeedLabel.ZIndex = 33
+infoSpeedLabel.Parent = infoPanel
+
+local infoJumpLabel = Instance.new("TextLabel")
+infoJumpLabel.Size = UDim2.new(1, 0, 0, 16)
+infoJumpLabel.Position = UDim2.new(0, 0, 0, 52)
+infoJumpLabel.BackgroundTransparency = 1
+infoJumpLabel.Font = Enum.Font.Gotham
+infoJumpLabel.TextSize = 14
+infoJumpLabel.TextColor3 = COLOR_TEXT
+infoJumpLabel.TextXAlignment = Enum.TextXAlignment.Right
+infoJumpLabel.Text = ""
+infoJumpLabel.ZIndex = 33
+infoJumpLabel.Parent = infoPanel
+
+local infoFlyLabel = Instance.new("TextLabel")
+infoFlyLabel.Size = UDim2.new(1, 0, 0, 16)
+infoFlyLabel.Position = UDim2.new(0, 0, 0, 68)
+infoFlyLabel.BackgroundTransparency = 1
+infoFlyLabel.Font = Enum.Font.Gotham
+infoFlyLabel.TextSize = 14
+infoFlyLabel.TextColor3 = COLOR_TEXT
+infoFlyLabel.TextXAlignment = Enum.TextXAlignment.Right
+infoFlyLabel.Text = ""
+infoFlyLabel.ZIndex = 33
+infoFlyLabel.Parent = infoPanel
+
+---------------------------------------------------------------------
+-- Círculo flotante
 ---------------------------------------------------------------------
 local miniCircle = Instance.new("TextButton")
 miniCircle.Size = UDim2.new(0, 64, 0, 64)
@@ -864,251 +1364,282 @@ miniCircle.Active = true
 miniCircle.Draggable = true
 
 ---------------------------------------------------------------------
--- Dropdown jugadores: lógica
+-- Dropdown jugadores lógica
 ---------------------------------------------------------------------
 local function clearDropdown()
-    for _, child in ipairs(dropdownFrame:GetChildren()) do
-        if child:IsA("TextButton") then
-            child:Destroy()
-        end
-    end
+	for _, child in ipairs(dropdownFrame:GetChildren()) do
+		if child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
 end
 
 local function refreshPlayers()
-    clearDropdown()
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= player then
-            local btn = Instance.new("TextButton")
-            btn.Size = UDim2.new(1, -8, 0, 24)
-            btn.BackgroundColor3 = COLOR_PANEL_2
-            btn.TextColor3 = COLOR_TEXT
-            btn.Font = Enum.Font.Gotham
-            btn.TextSize = 14
-            btn.Text = plr.Name
-            btn.AutoButtonColor = true
-            btn.ZIndex = 21
-            btn.Parent = dropdownFrame
+	clearDropdown()
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player then
+			local btn = Instance.new("TextButton")
+			btn.Size = UDim2.new(1, -8, 0, 24)
+			btn.BackgroundColor3 = COLOR_PANEL_2
+			btn.TextColor3 = COLOR_TEXT
+			btn.Font = Enum.Font.Gotham
+			btn.TextSize = 14
+			btn.Text = plr.Name
+			btn.AutoButtonColor = true
+			btn.ZIndex = 21
+			btn.Parent = dropdownFrame
 
-            local c = Instance.new("UICorner")
-            c.CornerRadius = UDim.new(0, 8)
-            c.Parent = btn
+			local c = Instance.new("UICorner")
+			c.CornerRadius = UDim.new(0, 8)
+			c.Parent = btn
 
-            btn.MouseButton1Click:Connect(function()
-                selectedPlayer = plr
-                dropdownButton.Text = "Seleccionado: " .. plr.Name
-                dropdownButton.TextColor3 = COLOR_TEXT
-                dropdownFrame.Visible = false
-            end)
-        end
-    end
+			btn.MouseButton1Click:Connect(function()
+				selectedPlayer = plr
+				dropdownButton.Text = "Seleccionado: " .. plr.Name
+				dropdownButton.TextColor3 = COLOR_TEXT
+				dropdownFrame.Visible = false
+			end)
+		end
+	end
 end
 
 Players.PlayerAdded:Connect(refreshPlayers)
 Players.PlayerRemoving:Connect(function(plr)
-    if selectedPlayer == plr then
-        selectedPlayer = nil
-        dropdownButton.Text = "Seleccionar jugador ▼"
-        dropdownButton.TextColor3 = COLOR_MUTED
-    end
-    refreshPlayers()
+	if selectedPlayer == plr then
+		selectedPlayer = nil
+		dropdownButton.Text = "Seleccionar jugador ▼"
+		dropdownButton.TextColor3 = COLOR_MUTED
+	end
+	refreshPlayers()
 end)
 
 refreshPlayers()
 
 ---------------------------------------------------------------------
--- Checkpoints: lógica
+-- Checkpoints lógica
 ---------------------------------------------------------------------
 local function clearCpDropdown()
-    for _, child in ipairs(cpDropdownFrame:GetChildren()) do
-        if child:IsA("TextButton") then
-            child:Destroy()
-        end
-    end
+	for _, child in ipairs(cpDropdownFrame:GetChildren()) do
+		if child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
 end
 
 local function refreshCheckpoints()
-    clearCpDropdown()
-    for i, info in ipairs(savedPositions) do
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, -8, 0, 24)
-        btn.BackgroundColor3 = COLOR_PANEL_2
-        btn.TextColor3 = COLOR_TEXT
-        btn.Font = Enum.Font.Gotham
-        btn.TextSize = 14
-        btn.Text = info.name
-        btn.AutoButtonColor = true
-        btn.ZIndex = 21
-        btn.Parent = cpDropdownFrame
+	clearCpDropdown()
+	for i, info in ipairs(savedPositions) do
+		local btn = Instance.new("TextButton")
+		btn.Size = UDim2.new(1, -8, 0, 24)
+		btn.BackgroundColor3 = COLOR_PANEL_2
+		btn.TextColor3 = COLOR_TEXT
+		btn.Font = Enum.Font.Gotham
+		btn.TextSize = 14
+		btn.Text = info.name
+		btn.AutoButtonColor = true
+		btn.ZIndex = 21
+		btn.Parent = cpDropdownFrame
 
-        local c = Instance.new("UICorner")
-        c.CornerRadius = UDim.new(0, 8)
-        c.Parent = btn
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, 8)
+		c.Parent = btn
 
-        btn.MouseButton1Click:Connect(function()
-            selectedCheckpointIndex = i
-            cpDropdownButton.Text = "Seleccionado: " .. info.name
-            cpDropdownButton.TextColor3 = COLOR_TEXT
-            cpDropdownFrame.Visible = false
-        end)
-    end
+		btn.MouseButton1Click:Connect(function()
+			selectedCheckpointIndex = i
+			cpDropdownButton.Text = "Seleccionado: " .. info.name
+			cpDropdownButton.TextColor3 = COLOR_TEXT
+			cpDropdownFrame.Visible = false
+		end)
+	end
 end
 
 saveCpBtn.MouseButton1Click:Connect(function()
-    local hum, hrp = getHumanoidAndRoot()
-    if not hum or not hrp then return end
+	local hum, hrp = getHumanoidAndRoot()
+	if not hum or not hrp then return end
 
-    local idx = #savedPositions + 1
-    local info = {
-        name = "Posición " .. tostring(idx),
-        cframe = hrp.CFrame
-    }
-    table.insert(savedPositions, info)
-    selectedCheckpointIndex = idx
-    cpDropdownButton.Text = "Seleccionado: " .. info.name
-    cpDropdownButton.TextColor3 = COLOR_TEXT
-    refreshCheckpoints()
+	local idx = #savedPositions + 1
+	local info = {
+		name = "Posición " .. tostring(idx),
+		cframe = hrp.CFrame,
+	}
+	table.insert(savedPositions, info)
+	selectedCheckpointIndex = idx
+	cpDropdownButton.Text = "Seleccionado: " .. info.name
+	cpDropdownButton.TextColor3 = COLOR_TEXT
+	refreshCheckpoints()
 end)
 
 gotoCpBtn.MouseButton1Click:Connect(function()
-    if not selectedCheckpointIndex then return end
-    local info = savedPositions[selectedCheckpointIndex]
-    if not info then return end
-
-    local hum, hrp = getHumanoidAndRoot()
-    if not hum or not hrp then return end
-
-    safe(function()
-        hrp.CFrame = info.cframe
-    end)
+	if not selectedCheckpointIndex then return end
+	local info = savedPositions[selectedCheckpointIndex]
+	if not info then return end
+	local hum, hrp = getHumanoidAndRoot()
+	if not hum or not hrp then return end
+	safe(function()
+		hrp.CFrame = info.cframe
+	end)
 end)
 
 ---------------------------------------------------------------------
--- Teletransportar a jugador
+-- Teleport exacto
 ---------------------------------------------------------------------
 tpBtn.MouseButton1Click:Connect(function()
-    if not selectedPlayer or not selectedPlayer.Character then return end
+	if not selectedPlayer or not selectedPlayer.Character then return end
 
-    local myChar = player.Character
-    if not myChar then return end
+	local myChar = player.Character
+	if not myChar then return end
 
-    local myHRP = myChar:FindFirstChild("HumanoidRootPart")
-    local otherHRP = selectedPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not myHRP or not otherHRP then return end
+	local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+	local otherHRP = selectedPlayer.Character:FindFirstChild("HumanoidRootPart")
+	if not myHRP or not otherHRP then return end
 
-    -- Apagar preview y fly para evitar bugs
-    if spectating then
-        spectating = false
-        spectateTarget = nil
-        previewCheck.Visible = false
-        safe(function()
-            camera.CameraType = originalCameraType or Enum.CameraType.Custom
-            camera.CameraSubject = originalCameraSubject or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
-        end)
-    end
+	if spectating then
+		spectating = false
+		spectateTarget = nil
+		previewCheck.Visible = false
+		safe(function()
+			camera.CameraType = originalCameraType or Enum.CameraType.Custom
+			camera.CameraSubject = originalCameraSubject or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
+		end)
+	end
 
-    if flying then
-        flying = false
-        flyCheck.Visible = false
-        flyCFrame = nil
-        safe(function()
-            local hum, hrp2 = getHumanoidAndRoot()
-            if hum and hrp2 then
-                hrp2.Anchored = flyPrevAnchored
-                hum:ChangeState(Enum.HumanoidStateType.Running)
-            end
-        end)
-    end
+	if flying then
+		flying = false
+		flyCheck.Visible = false
+		flyCFrame = nil
+		safe(function()
+			local hum, hrp2 = getHumanoidAndRoot()
+			if hum and hrp2 then
+				hrp2.Anchored = flyPrevAnchored
+				hum:ChangeState(Enum.HumanoidStateType.Running)
+			end
+		end)
+	end
 
-    safe(function()
-        myHRP.CFrame = otherHRP.CFrame + Vector3.new(2, 0, 2)
-    end)
+	if freecamEnabled then
+		freecamEnabled = false
+		freecamCheck.Visible = false
+		freecamCFrame = nil
+		safe(function()
+			local hum, hrp2 = getHumanoidAndRoot()
+			if hum and hrp2 then
+				hrp2.Anchored = freecamPrevAnchored
+				camera.CameraType = Enum.CameraType.Custom
+				camera.CameraSubject = hum
+			end
+		end)
+	end
+
+	safe(function()
+		myHRP.CFrame = otherHRP.CFrame
+	end)
 end)
 
 ---------------------------------------------------------------------
 -- Vista previa (spectate)
 ---------------------------------------------------------------------
-previewBox.MouseButton1Click:Connect(function()
-    if not selectedPlayer then return end
+local function TogglePreview()
+	if not selectedPlayer then return end
 
-    if not spectating then
-        -- Apagar vuelo para evitar mezcla rara
-        if flying then
-            flying = false
-            flyCheck.Visible = false
-            flyCFrame = nil
-            safe(function()
-                local hum, hrp = getHumanoidAndRoot()
-                if hum and hrp then
-                    hrp.Anchored = flyPrevAnchored
-                    hum:ChangeState(Enum.HumanoidStateType.Running)
-                end
-            end)
-        end
+	if not spectating then
+		if flying then
+			flying = false
+			flyCheck.Visible = false
+			flyCFrame = nil
+			safe(function()
+				local hum, hrp = getHumanoidAndRoot()
+				if hum and hrp then
+					hrp.Anchored = flyPrevAnchored
+					hum:ChangeState(Enum.HumanoidStateType.Running)
+				end
+			end)
+		end
 
-        spectating = true
-        spectateTarget = selectedPlayer
-        previewCheck.Visible = true
+		if freecamEnabled then
+			freecamEnabled = false
+			freecamCheck.Visible = false
+			freecamCFrame = nil
+			safe(function()
+				local hum, hrp = getHumanoidAndRoot()
+				if hum and hrp then
+					hrp.Anchored = freecamPrevAnchored
+					camera.CameraType = Enum.CameraType.Custom
+					camera.CameraSubject = hum
+				end
+			end)
+		end
 
-        originalCameraType = camera.CameraType
-        originalCameraSubject = camera.CameraSubject
+		spectating = true
+		spectateTarget = selectedPlayer
+		previewCheck.Visible = true
 
-        safe(function()
-            if spectateTarget.Character and spectateTarget.Character:FindFirstChild("Humanoid") then
-                camera.CameraType = Enum.CameraType.Attach
-                camera.CameraSubject = spectateTarget.Character:FindFirstChild("Humanoid")
-            else
-                spectating = false
-                spectateTarget = nil
-                previewCheck.Visible = false
-            end
-        end)
-    else
-        spectating = false
-        spectateTarget = nil
-        previewCheck.Visible = false
-        safe(function()
-            camera.CameraType = originalCameraType or Enum.CameraType.Custom
-            camera.CameraSubject = originalCameraSubject or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
-        end)
-    end
-end)
+		originalCameraType = camera.CameraType
+		originalCameraSubject = camera.CameraSubject
+
+		safe(function()
+			if spectateTarget.Character and spectateTarget.Character:FindFirstChildOfClass("Humanoid") then
+				camera.CameraType = Enum.CameraType.Custom
+				camera.CameraSubject = spectateTarget.Character:FindFirstChildOfClass("Humanoid")
+			else
+				spectating = false
+				spectateTarget = nil
+				previewCheck.Visible = false
+			end
+		end)
+	else
+		spectating = false
+		spectateTarget = nil
+		previewCheck.Visible = false
+		safe(function()
+			camera.CameraType = originalCameraType or Enum.CameraType.Custom
+			camera.CameraSubject = originalCameraSubject or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
+		end)
+	end
+end
+
+previewBox.MouseButton1Click:Connect(TogglePreview)
 
 RunService.Heartbeat:Connect(function()
-    if spectating and spectateTarget then
-        if not spectateTarget.Parent
-            or not spectateTarget.Character
-            or not spectateTarget.Character:FindFirstChild("Humanoid") then
+	if spectating and spectateTarget then
+		if not spectateTarget.Parent
+			or not spectateTarget.Character
+			or not spectateTarget.Character:FindFirstChildOfClass("Humanoid") then
 
-            spectating = false
-            spectateTarget = nil
-            previewCheck.Visible = false
-            safe(function()
-                camera.CameraType = originalCameraType or Enum.CameraType.Custom
-                camera.CameraSubject = originalCameraSubject or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
-            end)
-        else
-            safe(function()
-                camera.CameraSubject = spectateTarget.Character:FindFirstChild("Humanoid")
-            end)
-        end
-    end
+			spectating = false
+			spectateTarget = nil
+			previewCheck.Visible = false
+			safe(function()
+				camera.CameraType = originalCameraType or Enum.CameraType.Custom
+				camera.CameraSubject = originalCameraSubject or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
+			end)
+		else
+			safe(function()
+				camera.CameraSubject = spectateTarget.Character:FindFirstChildOfClass("Humanoid")
+			end)
+		end
+	end
 end)
 
 player.CharacterRemoving:Connect(function()
-    if spectating then
-        spectating = false
-        spectateTarget = nil
-        previewCheck.Visible = false
-        safe(function()
-            camera.CameraType = originalCameraType or Enum.CameraType.Custom
-            camera.CameraSubject = originalCameraSubject or nil
-        end)
-    end
-    if flying then
-        flying = false
-        flyCheck.Visible = false
-        flyCFrame = nil
-    end
+	if spectating then
+		spectating = false
+		spectateTarget = nil
+		previewCheck.Visible = false
+		safe(function()
+			camera.CameraType = originalCameraType or Enum.CameraType.Custom
+			camera.CameraSubject = originalCameraSubject or nil
+		end)
+	end
+	if flying then
+		flying = false
+		flyCheck.Visible = false
+		flyCFrame = nil
+	end
+	if freecamEnabled then
+		freecamEnabled = false
+		freecamCheck.Visible = false
+		freecamCFrame = nil
+	end
 end)
 
 ---------------------------------------------------------------------
@@ -1117,405 +1648,799 @@ end)
 local draggingSpeed = false
 local draggingJump  = false
 local draggingFly   = false
+local draggingFov   = false
 
 local function setKnob(knob, bar, ratio)
-    knob.Position = UDim2.new(ratio, -9, 0.5, -9)
+	knob.Position = UDim2.new(ratio, -9, 0.5, -9)
 end
 
 local function mapToValue(bar, x, minV, maxV)
-    if bar.AbsoluteSize.X <= 0 then
-        return minV, 0
-    end
-    local rel = math.clamp(x - bar.AbsolutePosition.X, 0, bar.AbsoluteSize.X)
-    local ratio = rel / bar.AbsoluteSize.X
-    local val = math.floor(minV + (maxV - minV) * ratio)
-    return val, ratio
+	if bar.AbsoluteSize.X <= 0 then
+		return minV, 0
+	end
+	local rel = math.clamp(x - bar.AbsolutePosition.X, 0, bar.AbsoluteSize.X)
+	local ratio = rel / bar.AbsoluteSize.X
+	local val = math.floor(minV + (maxV - minV) * ratio)
+	return val, ratio
 end
 
 local function applyWalkSpeed(v)
-    safe(function()
-        local char = player.Character or player.CharacterAdded:Wait()
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then hum.WalkSpeed = v end
-    end)
+	safe(function()
+		local char = player.Character or player.CharacterAdded:Wait()
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum then hum.WalkSpeed = v end
+	end)
 end
 
 local function applyJumpPower(v)
-    safe(function()
-        local char = player.Character or player.CharacterAdded:Wait()
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then hum.JumpPower = v end
-    end)
+	safe(function()
+		local char = player.Character or player.CharacterAdded:Wait()
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum then hum.JumpPower = v end
+	end)
 end
 
 local function updateSpeedFromMouseX(x)
-    local v, ratio = mapToValue(speedBar, x, WALK_MIN, WALK_MAX)
-    speedValueLabel.Text = tostring(v)
-    setKnob(speedKnob, speedBar, ratio)
-    applyWalkSpeed(v)
+	local v, ratio = mapToValue(speedBar, x, WALK_MIN, WALK_MAX)
+	speedValueLabel.Text = tostring(v)
+	setKnob(speedKnob, speedBar, ratio)
+	if speedEnabled then
+		applyWalkSpeed(v)
+	end
 end
 
 local function updateJumpFromMouseX(x)
-    local v, ratio = mapToValue(jumpBar, x, JUMP_MIN, JUMP_MAX)
-    jumpValueLabel.Text = tostring(v)
-    setKnob(jumpKnob, jumpBar, ratio)
-    applyJumpPower(v)
+	local v, ratio = mapToValue(jumpBar, x, JUMP_MIN, JUMP_MAX)
+	jumpValueLabel.Text = tostring(v)
+	setKnob(jumpKnob, jumpBar, ratio)
+	if jumpEnabled then
+		applyJumpPower(v)
+	end
 end
 
 local function updateFlyFromMouseX(x)
-    local v, ratio = mapToValue(flyBar, x, FLY_MIN, FLY_MAX)
-    flyValueLabel.Text = tostring(v)
-    setKnob(flyKnob, flyBar, ratio)
-    currentFlySpeed = v
+	local v, ratio = mapToValue(flyBar, x, FLY_MIN, FLY_MAX)
+	flyValueLabel.Text = tostring(v)
+	setKnob(flyKnob, flyBar, ratio)
+	currentFlySpeed = v
+end
+
+local function updateFovFromMouseX(x)
+	local v, ratio = mapToValue(fovBar, x, FOV_MIN, FOV_MAX)
+	fovValueLabel.Text = tostring(v)
+	setKnob(fovKnob, fovBar, ratio)
+	safe(function()
+		camera.FieldOfView = v
+	end)
 end
 
 speedKnob.MouseButton1Down:Connect(function()
-    draggingSpeed = true
+	draggingSpeed = true
 end)
 
 jumpKnob.MouseButton1Down:Connect(function()
-    draggingJump = true
+	draggingJump = true
 end)
 
 flyKnob.MouseButton1Down:Connect(function()
-    draggingFly = true
+	draggingFly = true
 end)
 
+fovKnob.MouseButton1Down:Connect(function()
+	draggingFov = true
+end)
+
+local function handleBarInput(bar, flagName, updateFunc, input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		_G[flagName] = true
+		updateFunc(input.Position.X)
+	end
+end
+
 speedBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-        draggingSpeed = true
-        updateSpeedFromMouseX(input.Position.X)
-    end
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		draggingSpeed = true
+		updateSpeedFromMouseX(input.Position.X)
+	end
 end)
 
 jumpBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-        draggingJump = true
-        updateJumpFromMouseX(input.Position.X)
-    end
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		draggingJump = true
+		updateJumpFromMouseX(input.Position.X)
+	end
 end)
 
 flyBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-        draggingFly = true
-        updateFlyFromMouseX(input.Position.X)
-    end
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		draggingFly = true
+		updateFlyFromMouseX(input.Position.X)
+	end
+end)
+
+fovBar.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		draggingFov = true
+		updateFovFromMouseX(input.Position.X)
+	end
 end)
 
 mouse.Button1Up:Connect(function()
-    draggingSpeed = false
-    draggingJump  = false
-    draggingFly   = false
+	draggingSpeed = false
+	draggingJump  = false
+	draggingFly   = false
+	draggingFov   = false
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-        draggingSpeed = false
-        draggingJump  = false
-        draggingFly   = false
-    end
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		draggingSpeed = false
+		draggingJump  = false
+		draggingFly   = false
+		draggingFov   = false
+	end
 end)
 
 local function initSliders()
-    speedValueLabel.Text = tostring(WALK_MIN)
-    jumpValueLabel.Text  = tostring(JUMP_MIN)
-    flyValueLabel.Text   = tostring(FLY_MIN)
-    setKnob(speedKnob, speedBar, 0)
-    setKnob(jumpKnob,  jumpBar,  0)
-    setKnob(flyKnob,   flyBar,   0)
-    applyWalkSpeed(WALK_MIN)
-    applyJumpPower(JUMP_MIN)
-    currentFlySpeed = FLY_MIN
+	speedValueLabel.Text = tostring(WALK_MIN)
+	jumpValueLabel.Text  = tostring(JUMP_MIN)
+	flyValueLabel.Text   = tostring(FLY_MIN)
+	fovValueLabel.Text   = tostring(FOV_MIN)
+	setKnob(speedKnob, speedBar, 0)
+	setKnob(jumpKnob,  jumpBar,  0)
+	setKnob(flyKnob,   flyBar,   0)
+	setKnob(fovKnob,   fovBar,   0)
+	currentFlySpeed = FLY_MIN
+	safe(function()
+		camera.FieldOfView = FOV_MIN
+	end)
 end
 
 initSliders()
 
 player.CharacterAdded:Connect(function(char)
-    char:WaitForChild("Humanoid", 5)
-    applyWalkSpeed(tonumber(speedValueLabel.Text) or WALK_MIN)
-    applyJumpPower(tonumber(jumpValueLabel.Text) or JUMP_MIN)
-    flying = false
-    flyCheck.Visible = false
-    flyCFrame = nil
+	char:WaitForChild("Humanoid", 5)
+	local ws = tonumber(speedValueLabel.Text) or WALK_MIN
+	local jp = tonumber(jumpValueLabel.Text) or JUMP_MIN
+	if speedEnabled then
+		applyWalkSpeed(ws)
+	end
+	if jumpEnabled then
+		applyJumpPower(jp)
+	end
+	flying = false
+	flyCheck.Visible = false
+	flyCFrame = nil
+	freecamEnabled = false
+	freecamCheck.Visible = false
+	freecamCFrame = nil
 end)
 
 ---------------------------------------------------------------------
--- Vuelo: tipo script (LookVector cámara)
+-- Toggles velocidad / salto
 ---------------------------------------------------------------------
-flyBox.MouseButton1Click:Connect(function()
-    if not flying then
-        -- Apagar vista previa si estaba activa
-        if spectating then
-            spectating = false
-            spectateTarget = nil
-            previewCheck.Visible = false
-            safe(function()
-                camera.CameraType = originalCameraType or Enum.CameraType.Custom
-                camera.CameraSubject = originalCameraSubject or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
-            end)
-        end
+speedToggleBox.MouseButton1Click:Connect(function()
+	speedEnabled = not speedEnabled
+	speedToggleCheck.Visible = speedEnabled
+	if not speedEnabled then
+		safe(function()
+			local hum, _ = getHumanoidAndRoot()
+			if hum then hum.WalkSpeed = 16 end
+		end)
+	else
+		local v = tonumber(speedValueLabel.Text) or WALK_MIN
+		applyWalkSpeed(v)
+	end
+end)
 
-        flying = true
-        flyCheck.Visible = true
-        safe(function()
-            local hum, hrp = getHumanoidAndRoot()
-            if hum and hrp then
-                flyPrevAnchored = hrp.Anchored
-                hrp.Anchored = true
-                flyCFrame = hrp.CFrame
-                hum:ChangeState(Enum.HumanoidStateType.Running)
-            end
-        end)
-    else
-        flying = false
-        flyCheck.Visible = false
-        flyCFrame = nil
-        safe(function()
-            local hum, hrp = getHumanoidAndRoot()
-            if hum and hrp then
-                hrp.Anchored = flyPrevAnchored
-                hum:ChangeState(Enum.HumanoidStateType.Running)
-            end
-        end)
-    end
+jumpToggleBox.MouseButton1Click:Connect(function()
+	jumpEnabled = not jumpEnabled
+	jumpToggleCheck.Visible = jumpEnabled
+	if not jumpEnabled then
+		safe(function()
+			local hum, _ = getHumanoidAndRoot()
+			if hum then hum.JumpPower = 50 end
+		end)
+	else
+		local v = tonumber(jumpValueLabel.Text) or JUMP_MIN
+		applyJumpPower(v)
+	end
 end)
 
 ---------------------------------------------------------------------
--- FPS / Ping y sliders / dropdowns: RenderStepped
+-- Vuelo
+---------------------------------------------------------------------
+local function ToggleFly()
+	if not flying then
+		if spectating then
+			spectating = false
+			spectateTarget = nil
+			previewCheck.Visible = false
+			safe(function()
+				camera.CameraType = originalCameraType or Enum.CameraType.Custom
+				camera.CameraSubject = originalCameraSubject or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
+			end)
+		end
+
+		if freecamEnabled then
+			freecamEnabled = false
+			freecamCheck.Visible = false
+			freecamCFrame = nil
+			safe(function()
+				local hum, hrp = getHumanoidAndRoot()
+				if hum and hrp then
+					hrp.Anchored = freecamPrevAnchored
+					camera.CameraType = Enum.CameraType.Custom
+					camera.CameraSubject = hum
+				end
+			end)
+		end
+
+		flying = true
+		flyCheck.Visible = true
+		safe(function()
+			local hum, hrp = getHumanoidAndRoot()
+			if hum and hrp then
+				flyPrevAnchored = hrp.Anchored
+				hrp.Anchored = true
+				flyCFrame = hrp.CFrame
+				hum:ChangeState(Enum.HumanoidStateType.Running)
+			end
+		end)
+	else
+		flying = false
+		flyCheck.Visible = false
+		flyCFrame = nil
+		safe(function()
+			local hum, hrp = getHumanoidAndRoot()
+			if hum and hrp then
+				hrp.Anchored = flyPrevAnchored
+				hum:ChangeState(Enum.HumanoidStateType.Running)
+			end
+		end)
+	end
+end
+
+flyBox.MouseButton1Click:Connect(ToggleFly)
+
+---------------------------------------------------------------------
+-- Freecam
+---------------------------------------------------------------------
+local function ToggleFreecam()
+	if not freecamEnabled then
+		-- Apagar vista previa y vuelo
+		if spectating then
+			spectating = false
+			spectateTarget = nil
+			previewCheck.Visible = false
+			safe(function()
+				camera.CameraType = originalCameraType or Enum.CameraType.Custom
+				camera.CameraSubject = originalCameraSubject or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
+			end)
+		end
+
+		if flying then
+			flying = false
+			flyCheck.Visible = false
+			flyCFrame = nil
+			safe(function()
+				local hum, hrp = getHumanoidAndRoot()
+				if hum and hrp then
+					hrp.Anchored = flyPrevAnchored
+					hum:ChangeState(Enum.HumanoidStateType.Running)
+				end
+			end)
+		end
+
+		freecamEnabled = true
+		freecamCheck.Visible = true
+		safe(function()
+			local hum, hrp = getHumanoidAndRoot()
+			if hum and hrp then
+				freecamPrevAnchored = hrp.Anchored
+				hrp.Anchored = true
+			end
+			freecamCFrame = camera.CFrame
+			camera.CameraType = Enum.CameraType.Scriptable
+		end)
+	else
+		freecamEnabled = false
+		freecamCheck.Visible = false
+		freecamCFrame = nil
+		safe(function()
+			local hum, hrp = getHumanoidAndRoot()
+			if hum and hrp then
+				hrp.Anchored = freecamPrevAnchored
+				camera.CameraType = Enum.CameraType.Custom
+				camera.CameraSubject = hum
+			end
+		end)
+	end
+end
+
+freecamBox.MouseButton1Click:Connect(ToggleFreecam)
+
+UserInputService.InputBegan:Connect(function(input, gp)
+	if gp then return end
+	if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+	local kc = input.KeyCode
+	if kc == Enum.KeyCode.W then freecamKeys.W = true end
+	if kc == Enum.KeyCode.S then freecamKeys.S = true end
+	if kc == Enum.KeyCode.A then freecamKeys.A = true end
+	if kc == Enum.KeyCode.D then freecamKeys.D = true end
+	if kc == Enum.KeyCode.Space then freecamKeys.Space = true end
+	if kc == Enum.KeyCode.LeftShift or kc == Enum.KeyCode.RightShift then freecamKeys.Shift = true end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gp)
+	if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+	local kc = input.KeyCode
+	if kc == Enum.KeyCode.W then freecamKeys.W = false end
+	if kc == Enum.KeyCode.S then freecamKeys.S = false end
+	if kc == Enum.KeyCode.A then freecamKeys.A = false end
+	if kc == Enum.KeyCode.D then freecamKeys.D = false end
+	if kc == Enum.KeyCode.Space then freecamKeys.Space = false end
+	if kc == Enum.KeyCode.LeftShift or kc == Enum.KeyCode.RightShift then freecamKeys.Shift = false end
+end)
+
+---------------------------------------------------------------------
+-- FPS/Ping + sliders + Freecam movimiento (RenderStepped)
 ---------------------------------------------------------------------
 local fpsAccum, fpsFrames = 0, 0
 
 RunService.RenderStepped:Connect(function(dt)
-    -- Reposicionar dropdowns cuando el HUD se mueva
-    if dropdownFrame.Visible then
-        updateDropdownPosition()
-    end
-    if cpDropdownFrame.Visible then
-        updateCpDropdownPosition()
-    end
+	if dropdownFrame.Visible then
+		updateDropdownPosition()
+	end
+	if cpDropdownFrame.Visible then
+		updateCpDropdownPosition()
+	end
 
-    -- Sliders mientras arrastras
-    if draggingSpeed then
-        updateSpeedFromMouseX(mouse.X)
-    end
-    if draggingJump then
-        updateJumpFromMouseX(mouse.X)
-    end
-    if draggingFly then
-        updateFlyFromMouseX(mouse.X)
-    end
+	if draggingSpeed then
+		updateSpeedFromMouseX(mouse.X)
+	end
+	if draggingJump then
+		updateJumpFromMouseX(mouse.X)
+	end
+	if draggingFly then
+		updateFlyFromMouseX(mouse.X)
+	end
+	if draggingFov then
+		updateFovFromMouseX(mouse.X)
+	end
 
-    -- FPS / Ping
-    if showStats then
-        fpsAccum = fpsAccum + dt
-        fpsFrames = fpsFrames + 1
+	if showStats then
+		fpsAccum = fpsAccum + dt
+		fpsFrames = fpsFrames + 1
+		if fpsAccum >= 0.5 then
+			local fps = math.floor(fpsFrames / fpsAccum + 0.5)
+			fpsAccum = 0
+			fpsFrames = 0
+			fpsLabel.Text = "FPS: " .. fps
+			fpsLabel.TextColor3 = getFpsColor(fps)
+			safe(function()
+				local net = Stats.Network
+				if net and net.ServerStatsItem then
+					local pingStat = net.ServerStatsItem["Data Ping"]
+					if pingStat then
+						local pingStr = pingStat:GetValueString() or "??"
+						pingLabel.Text = "Ping: " .. pingStr
+						local num = tonumber(pingStr:match("%d+"))
+						if num then
+							pingLabel.TextColor3 = getPingColor(num)
+						else
+							pingLabel.TextColor3 = COLOR_TEXT
+						end
+					else
+						pingLabel.Text = "Ping: --"
+						pingLabel.TextColor3 = COLOR_TEXT
+					end
+				else
+					pingLabel.Text = "Ping: --"
+					pingLabel.TextColor3 = COLOR_TEXT
+				end
+			end)
+		end
+	end
 
-        if fpsAccum >= 0.5 then
-            local fps = math.floor(fpsFrames / fpsAccum + 0.5)
-            fpsAccum = 0
-            fpsFrames = 0
+	-- Freecam movement
+	if freecamEnabled and freecamCFrame then
+		safe(function()
+			local move = Vector3.new()
+			if freecamKeys.W then move = move + Vector3.new(0, 0, -1) end
+			if freecamKeys.S then move = move + Vector3.new(0, 0, 1) end
+			if freecamKeys.A then move = move + Vector3.new(-1, 0, 0) end
+			if freecamKeys.D then move = move + Vector3.new(1, 0, 0) end
+			if freecamKeys.Space then move = move + Vector3.new(0, 1, 0) end
+			if freecamKeys.Shift then move = move + Vector3.new(0, -1, 0) end
 
-            fpsLabel.Text = "FPS: " .. tostring(fps)
-            fpsLabel.TextColor3 = getFpsColor(fps)
+			if move.Magnitude > 0 then
+				move = move.Unit
+				local speed = currentFlySpeed > 0 and currentFlySpeed or 80
+				local cf = freecamCFrame
+				local forward = cf.LookVector
+				local right = cf.RightVector
+				local up = Vector3.new(0, 1, 0)
 
-            safe(function()
-                local net = Stats.Network
-                if net and net.ServerStatsItem then
-                    local pingStat = net.ServerStatsItem["Data Ping"]
-                    if pingStat then
-                        local pingStr = pingStat:GetValueString() or "??"
-                        pingLabel.Text = "Ping: " .. pingStr
+				local worldMove =
+					forward * move.Z +
+					right * move.X +
+					up * move.Y
 
-                        local num = tonumber(pingStr:match("%d+"))
-                        if num then
-                            pingLabel.TextColor3 = getPingColor(num)
-                        else
-                            pingLabel.TextColor3 = COLOR_TEXT
-                        end
-                    else
-                        pingLabel.Text = "Ping: --"
-                        pingLabel.TextColor3 = COLOR_TEXT
-                    end
-                else
-                    pingLabel.Text = "Ping: --"
-                    pingLabel.TextColor3 = COLOR_TEXT
-                end
-            end)
-        end
-    end
+				freecamCFrame = freecamCFrame + worldMove * speed * dt
+			end
+
+			-- La cámara sigue el CFrame
+			camera.CFrame = freecamCFrame
+		end)
+	end
 end)
 
 ---------------------------------------------------------------------
--- Vuelo movimiento: Heartbeat
+-- Vuelo movimiento (Heartbeat)
 ---------------------------------------------------------------------
 RunService.Heartbeat:Connect(function(dt)
-    if flying and currentFlySpeed > 0 and flyCFrame then
-        safe(function()
-            local hum, hrp = getHumanoidAndRoot()
-            if not hum or not hrp then return end
-
-            local moveDir = hum.MoveDirection
-            if moveDir.Magnitude > 0.05 then
-                local look = camera.CFrame.LookVector.Unit
-                local distance = currentFlySpeed * dt
-                flyCFrame = flyCFrame + look * distance
-                hrp.CFrame = flyCFrame
-            else
-                hrp.CFrame = flyCFrame
-            end
-        end)
-    end
+	if flying and currentFlySpeed > 0 and flyCFrame then
+		safe(function()
+			local hum, hrp = getHumanoidAndRoot()
+			if not hum or not hrp then return end
+			local moveDir = hum.MoveDirection
+			if moveDir.Magnitude > 0.05 then
+				local look = camera.CFrame.LookVector.Unit
+				local distance = currentFlySpeed * dt
+				flyCFrame = flyCFrame + look * distance
+				hrp.CFrame = flyCFrame
+			else
+				hrp.CFrame = flyCFrame
+			end
+		end)
+	end
 end)
 
 ---------------------------------------------------------------------
--- FPS/Ping toggle
+-- Info panel update
 ---------------------------------------------------------------------
-statsBox.MouseButton1Click:Connect(function()
-    showStats = not showStats
-    statsFrame.Visible = showStats
-    statsCheck.Visible = showStats
+RunService.Heartbeat:Connect(function()
+	if not showInfoPanel then return end
+	safe(function()
+		local hum, hrp = getHumanoidAndRoot()
+		if not hum then
+			infoNameLabel.Text = player.Name
+			infoHpLabel.Text   = "HP: --"
+			infoSpeedLabel.Text= "Vel: --"
+			infoJumpLabel.Text = "Salto: --"
+			infoFlyLabel.Text  = "Fly: " .. tostring(currentFlySpeed)
+			return
+		end
+
+		local maxHealth = hum.MaxHealth > 0 and hum.MaxHealth or 100
+		infoNameLabel.Text = player.Name
+		infoHpLabel.Text   = string.format("HP: %d / %d", hum.Health, maxHealth)
+		infoSpeedLabel.Text= "Vel: " .. tostring(math.floor(hum.WalkSpeed + 0.5))
+		infoJumpLabel.Text = "Salto: " .. tostring(math.floor(hum.JumpPower + 0.5))
+		infoFlyLabel.Text  = "Fly: " .. tostring(currentFlySpeed)
+	end)
 end)
+
+---------------------------------------------------------------------
+-- Stats toggle
+---------------------------------------------------------------------
+local function ToggleStats()
+	showStats = not showStats
+	statsFrame.Visible = showStats
+	statsCheck.Visible = showStats
+end
+
+statsBox.MouseButton1Click:Connect(ToggleStats)
 
 ---------------------------------------------------------------------
 -- ESP lógica
 ---------------------------------------------------------------------
 local function clearAllESP()
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= player and plr.Character then
-            local head = plr.Character:FindFirstChild("Head")
-            if head then
-                local gui = head:FindFirstChild("LTCV2_ESP")
-                if gui then gui:Destroy() end
-            end
-        end
-    end
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player and plr.Character then
+			local head = plr.Character:FindFirstChild("Head")
+			if head then
+				local gui = head:FindFirstChild("LTCV2_ESP")
+				if gui then gui:Destroy() end
+			end
+		end
+	end
 end
 
 local function applyESPToCharacter(plr, char)
-    if not espEnabled then return end
-    if plr == player then return end
-    local head = char:FindFirstChild("Head")
-    if not head then return end
+	if not espEnabled or plr == player then return end
+	local head = char:FindFirstChild("Head")
+	if not head then return end
+	local existing = head:FindFirstChild("LTCV2_ESP")
+	if existing then existing:Destroy() end
 
-    local existing = head:FindFirstChild("LTCV2_ESP")
-    if existing then existing:Destroy() end
+	local bill = Instance.new("BillboardGui")
+	bill.Name = "LTCV2_ESP"
+	bill.Adornee = head
+	bill.AlwaysOnTop = true
+	bill.Size = UDim2.new(0, 200, 0, 40)
+	bill.StudsOffset = Vector3.new(0, 3, 0)
+	bill.Parent = head
 
-    local bill = Instance.new("BillboardGui")
-    bill.Name = "LTCV2_ESP"
-    bill.Adornee = head
-    bill.AlwaysOnTop = true
-    bill.Size = UDim2.new(0, 200, 0, 40)
-    bill.StudsOffset = Vector3.new(0, 3, 0)
-    bill.Parent = head
-
-    local label = Instance.new("TextLabel")
-    label.Name = "NameLabel"
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.Font = Enum.Font.GothamBold
-    label.TextColor3 = COLOR_NEON
-    label.TextStrokeTransparency = 0.2
-    label.TextStrokeColor3 = Color3.new(0, 0, 0)
-    label.TextScaled = true
-    label.Text = plr.Name
-    label.Parent = bill
+	local label = Instance.new("TextLabel")
+	label.Name = "NameLabel"
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.TextColor3 = COLOR_NEON
+	label.TextStrokeTransparency = 0.2
+	label.TextStrokeColor3 = Color3.new(0, 0, 0)
+	label.TextScaled = true
+	label.Text = plr.Name
+	label.Parent = bill
 end
 
 local function applyESPForAll()
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= player and plr.Character then
-            applyESPToCharacter(plr, plr.Character)
-        end
-    end
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player and plr.Character then
+			applyESPToCharacter(plr, plr.Character)
+		end
+	end
 end
 
 local function onPlayerAddedESP(plr)
-    if plr == player then return end
-    plr.CharacterAdded:Connect(function(char)
-        if espEnabled then
-            safe(function()
-                char:WaitForChild("Head", 5)
-                applyESPToCharacter(plr, char)
-            end)
-        end
-    end)
+	if plr == player then return end
+	plr.CharacterAdded:Connect(function(char)
+		if espEnabled then
+			safe(function()
+				char:WaitForChild("Head", 5)
+				applyESPToCharacter(plr, char)
+			end)
+		end
+	end)
 end
 
 for _, plr in ipairs(Players:GetPlayers()) do
-    onPlayerAddedESP(plr)
+	onPlayerAddedESP(plr)
 end
 
 Players.PlayerAdded:Connect(onPlayerAddedESP)
 Players.PlayerRemoving:Connect(function(plr)
-    if plr.Character then
-        local head = plr.Character:FindFirstChild("Head")
-        if head then
-            local gui = head:FindFirstChild("LTCV2_ESP")
-            if gui then gui:Destroy() end
-        end
-    end
+	if plr.Character then
+		local head = plr.Character:FindFirstChild("Head")
+		if head then
+			local gui = head:FindFirstChild("LTCV2_ESP")
+			if gui then gui:Destroy() end
+		end
+	end
 end)
 
 RunService.Heartbeat:Connect(function()
-    if not espEnabled then return end
-    local myChar = player.Character
-    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= player and plr.Character then
-            local char = plr.Character
-            local head = char:FindFirstChild("Head")
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if head then
-                local gui = head:FindFirstChild("LTCV2_ESP")
-                if gui then
-                    local label = gui:FindFirstChild("NameLabel")
-                    if label then
-                        local distText = ""
-                        if myHRP and hrp then
-                            local d = (hrp.Position - myHRP.Position).Magnitude
-                            distText = string.format(" (%.0f)", d)
-                        end
-                        label.Text = plr.Name .. distText
-                    end
-                end
-            end
-        end
-    end
+	if not espEnabled then return end
+	local myChar = player.Character
+	local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player and plr.Character then
+			local char = plr.Character
+			local head = char:FindFirstChild("Head")
+			local hrp = char:FindFirstChild("HumanoidRootPart")
+			if head then
+				local gui = head:FindFirstChild("LTCV2_ESP")
+				if gui then
+					local label = gui:FindFirstChild("NameLabel")
+					if label then
+						local distText = ""
+						if myHRP and hrp then
+							local d = (hrp.Position - myHRP.Position).Magnitude
+							distText = string.format(" (%.0f)", d)
+						end
+						label.Text = plr.Name .. distText
+					end
+				end
+			end
+		end
+	end
 end)
 
-espBox.MouseButton1Click:Connect(function()
-    espEnabled = not espEnabled
-    espCheck.Visible = espEnabled
-    if espEnabled then
-        applyESPForAll()
-    else
-        clearAllESP()
-    end
+local function ToggleESP()
+	espEnabled = not espEnabled
+	espCheck.Visible = espEnabled
+	if espEnabled then
+		applyESPForAll()
+	else
+		clearAllESP()
+	end
+end
+
+espBox.MouseButton1Click:Connect(ToggleESP)
+
+---------------------------------------------------------------------
+-- MODO SEGURO / RESET
+---------------------------------------------------------------------
+local function FullReset()
+	-- Vuelo
+	if flying then
+		flying = false
+		flyCheck.Visible = false
+		flyCFrame = nil
+		safe(function()
+			local hum, hrp = getHumanoidAndRoot()
+			if hum and hrp then
+				hrp.Anchored = flyPrevAnchored
+				hum:ChangeState(Enum.HumanoidStateType.Running)
+			end
+		end)
+	end
+
+	-- Vista previa
+	if spectating then
+		spectating = false
+		spectateTarget = nil
+		previewCheck.Visible = false
+		safe(function()
+			camera.CameraType = originalCameraType or Enum.CameraType.Custom
+			camera.CameraSubject = originalCameraSubject or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
+		end)
+	end
+
+	-- Freecam
+	if freecamEnabled then
+		freecamEnabled = false
+		freecamCheck.Visible = false
+		freecamCFrame = nil
+		safe(function()
+			local hum, hrp = getHumanoidAndRoot()
+			if hum and hrp then
+				hrp.Anchored = freecamPrevAnchored
+				camera.CameraType = Enum.CameraType.Custom
+				camera.CameraSubject = hum
+			end
+		end)
+	end
+
+	-- ESP
+	if espEnabled then
+		espEnabled = false
+		espCheck.Visible = false
+		clearAllESP()
+	end
+
+	-- Stats
+	if showStats then
+		showStats = false
+		statsFrame.Visible = false
+		statsCheck.Visible = false
+	end
+
+	-- Speed / jump
+	if speedEnabled then
+		speedEnabled = false
+		speedToggleCheck.Visible = false
+	end
+	if jumpEnabled then
+		jumpEnabled = false
+		jumpToggleCheck.Visible = false
+	end
+
+	-- Info panel
+	if showInfoPanel then
+		showInfoPanel = false
+		infoCheck.Visible = false
+		infoPanel.Visible = false
+	end
+
+	-- Reset humanoid
+	safe(function()
+		local hum, _ = getHumanoidAndRoot()
+		if hum then
+			hum.WalkSpeed = 16
+			hum.JumpPower = 50
+		end
+	end)
+
+	-- Reset FOV
+	safe(function()
+		camera.FieldOfView = FOV_MIN
+	end)
+	fovValueLabel.Text = tostring(FOV_MIN)
+	setKnob(fovKnob, fovBar, 0)
+
+	-- Cerrar menús
+	dropdownFrame.Visible = false
+	cpDropdownFrame.Visible = false
+end
+
+resetBtn.MouseButton1Click:Connect(FullReset)
+
+---------------------------------------------------------------------
+-- Toggle Info panel
+---------------------------------------------------------------------
+infoBoxToggle.MouseButton1Click:Connect(function()
+	showInfoPanel = not showInfoPanel
+	infoCheck.Visible = showInfoPanel
+	infoPanel.Visible = showInfoPanel
 end)
 
 ---------------------------------------------------------------------
--- Botones cerrar / minimizar / jugar
+-- Toggle HUB
+---------------------------------------------------------------------
+local function ToggleHub()
+	if launcher.Visible and not mainFrame.Visible and not miniCircle.Visible then
+		launcher.Visible = false
+		mainFrame.Visible = true
+		miniCircle.Visible = false
+	elseif mainFrame.Visible then
+		mainFrame.Visible = false
+		miniCircle.Visible = true
+	else
+		mainFrame.Visible = true
+		miniCircle.Visible = false
+	end
+end
+
+---------------------------------------------------------------------
+-- Botones cerrar / minimizar / mini / jugar
 ---------------------------------------------------------------------
 closeBtn.MouseButton1Click:Connect(function()
-    mainFrame.Visible = false
-    miniCircle.Visible = false
+	mainFrame.Visible = false
+	miniCircle.Visible = false
 end)
 
 minBtn.MouseButton1Click:Connect(function()
-    mainFrame.Visible = false
-    miniCircle.Visible = true
+	mainFrame.Visible = false
+	miniCircle.Visible = true
 end)
 
 miniCircle.MouseButton1Click:Connect(function()
-    mainFrame.Visible = true
-    miniCircle.Visible = false
+	mainFrame.Visible = true
+	miniCircle.Visible = false
 end)
 
 playBtn.MouseButton1Click:Connect(function()
-    launcher.Visible = false
-    mainFrame.Visible = true
+	launcher.Visible = false
+	mainFrame.Visible = true
+end)
+
+---------------------------------------------------------------------
+-- Keybinds Input
+---------------------------------------------------------------------
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+	if UserInputService:GetFocusedTextBox() then
+		return
+	end
+
+	if waitingRebind then
+		local actionId = waitingRebind
+		waitingRebind = nil
+		keybinds[actionId] = input.KeyCode
+		local btn = keybindButtons[actionId]
+		if btn then
+			btn.Text = input.KeyCode.Name
+		end
+		return
+	end
+
+	if gameProcessed then return end
+
+	local kc = input.KeyCode
+
+	if kc == keybinds.OpenHub then
+		ToggleHub()
+	elseif kc == keybinds.Fly then
+		ToggleFly()
+	elseif kc == keybinds.Preview then
+		TogglePreview()
+	elseif kc == keybinds.ESP then
+		ToggleESP()
+	elseif kc == keybinds.Stats then
+		ToggleStats()
+	elseif kc == keybinds.Freecam then
+		ToggleFreecam()
+	end
 end)
