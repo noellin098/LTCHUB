@@ -379,7 +379,88 @@ Slider = MainTab:CreateSlider({
    end,
 })
 
+local TPTab = Window:CreateTab("🎲 Misc", nil) -- Title, Image
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
 
+local AimLockEnabled = false
+local HoldingRightClick = false
+local LockedTarget = nil
 
+-- 🔘 Toggle
+TPTab:CreateToggle({
+    Name = "Aim Lock (Click Derecho)",
+    CurrentValue = false,
+    Flag = "aimlock",
 
+    Callback = function(Value)
+        AimLockEnabled = Value
+        LockedTarget = nil
+    end,
+})
+
+-- 🔍 Buscar jugador más cercano al centro (estable)
+local function GetClosestToCenter()
+    local closest = nil
+    local shortestDistance = math.huge
+    local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+            
+            local head = player.Character.Head
+            local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+
+            if onScreen then
+                local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+
+                if dist < shortestDistance then
+                    shortestDistance = dist
+                    closest = player
+                end
+            end
+        end
+    end
+
+    return closest
+end
+
+-- 🖱️ Click derecho
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+
+    if input.UserInputType == Enum.UserInputType.MouseButton2 and AimLockEnabled then
+        HoldingRightClick = true
+        LockedTarget = GetClosestToCenter()
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        HoldingRightClick = false
+        LockedTarget = nil
+    end
+end)
+
+-- 🔄 Loop
+RunService.RenderStepped:Connect(function()
+    if AimLockEnabled and HoldingRightClick and LockedTarget then
+        local char = LockedTarget.Character
+
+        if char and char:FindFirstChild("Head") then
+            local headPos = char.Head.Position
+
+            -- suavizado para que no sea brusco
+            Camera.CFrame = Camera.CFrame:Lerp(
+                CFrame.new(Camera.CFrame.Position, headPos),
+                0.2
+            )
+        else
+            LockedTarget = nil
+        end
+    end
+end)
