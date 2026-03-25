@@ -393,7 +393,7 @@ local LockedTarget = nil
 
 -- 🔘 Toggle
 TPTab:CreateToggle({
-    Name = "Aim Lock (Click Derecho)",
+    Name = "Aim Lock (prescioanr Click Derecho) (solo shift block)",
     CurrentValue = false,
     Flag = "aimlock",
 
