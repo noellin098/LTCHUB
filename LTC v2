@@ -1,0 +1,241 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "😈LTC Hub v2- by Drak 🐵",
+   LoadingTitle =  "LTC HUB",
+   LoadingSubtitle = "by El Arabe-drak",
+   ConfigurationSaving = {
+      Enabled = false,
+      FolderName = nil, -- Create a custom folder for your hub/game
+      FileName = "Example Hub"
+   },
+   Discord = {
+      Enabled = false,
+      Invite = "noinvitelink", -- The Discord invite code, do not include discord.gg/. E.g. discord.gg/ABCD would be ABCD
+      RememberJoins = true -- Set this to false to make them join the discord every time they load it up
+   },
+   KeySystem = true, -- Set this to true to use our key system
+   KeySettings = {
+      Title = "Key | My HUB",
+      Subtitle = "Key System",
+      Note = "Key Is (robloxezz)",
+      FileName = "YoutubeHubKey1", -- It is recommended to use something unique as other scripts using Rayfield may overwrite your key file
+      SaveKey = false, -- The user's key will be saved, but if you change the key, they will be unable to use your script
+      GrabKeyFromSite = true, -- If this is true, set Key below to the RAW site you would like Rayfield to get the key from
+      Key = {"https://pastebin.com/raw/gVUDFvuL"} -- List of keys that will be accepted by the system, can be RAW file links (pastebin, github etc) or simple strings ("hello","key22")
+   }
+})
+
+local MainTab = Window:CreateTab("🏠 Home", nil) -- Title, Image
+local MainSection = MainTab:CreateSection("Main")
+
+Rayfield:Notify({
+   Title = "You executed the script LTC HUB",
+   Content = "Very Good maldito hacker ",
+   Duration = 5,
+   Image = 13047715178,
+   Actions = { -- Notification Buttons
+      Ignore = {
+         Name = "Okay!",
+         Callback = function()
+         print("The user tapped Okay!")
+      end
+   },
+},
+})
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- Obtener nombres
+local function GetPlayerNames()
+    local names = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then -- opcional: no incluirte
+            table.insert(names, player.Name)
+        end
+    end
+    return names
+end
+
+local SelectedPlayer = nil
+
+-- Dropdown
+local Dropdown = MainTab:CreateDropdown({
+   Name = "Teletransportar a Jugador",
+   Options = GetPlayerNames(),
+   CurrentOption = {"Seleccionar Jugador"},
+   MultipleOptions = false,
+   Flag = "Dropdown1",
+
+   Callback = function(Options)
+       SelectedPlayer = Options[1]
+       print("Seleccionaste:", SelectedPlayer)
+   end,
+})
+
+-- Actualizar lista
+Players.PlayerAdded:Connect(function()
+    Dropdown:SetOptions(GetPlayerNames())
+end)
+
+Players.PlayerRemoving:Connect(function()
+    Dropdown:SetOptions(GetPlayerNames())
+end)
+
+-- Toggle (ARREGLADO)
+local Toggle = MainTab:CreateToggle({
+   Name = "Vista previa",
+   CurrentValue = false,
+   Flag = "Toggle1",
+
+   Callback = function(Value)
+       local player = Players:FindFirstChild(SelectedPlayer)
+       local camera = workspace.CurrentCamera
+
+       if Value and player and player.Character and player.Character:FindFirstChild("Humanoid") then
+           camera.CameraSubject = player.Character.Humanoid
+       else
+           if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+               camera.CameraSubject = LocalPlayer.Character.Humanoid
+           end
+       end
+   end,
+})
+
+-- Botón (más seguro)
+local Button = MainTab:CreateButton({
+   Name = "Teletransportar",
+   Callback = function()
+       if not SelectedPlayer then return end
+
+       local target = Players:FindFirstChild(SelectedPlayer)
+
+       if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+           if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+               LocalPlayer.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame
+           end
+       end
+   end,
+})
+
+
+local Slider = MainTab:CreateSlider({
+   Name = "Walkspeed",
+   Range = {0, 300},
+   Increment = 16,
+   Suffix = "Speed",
+   CurrentValue = 16,
+   Flag = "walkspd", -- A flag is the identifier for the configuration file; make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+   Callback = function(Value)
+   -- The function that takes place when the slider changes
+             game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = (Value)
+   -- The variable (Value) is a number that correlates to the value the slider is currently at
+   end,
+})
+
+local Slider = MainTab:CreateSlider({
+   Name = "Jump Powe",
+   Range = {0, 300},
+   Increment = 10,
+   Suffix = "Power",
+   CurrentValue = 50,
+   Flag = "jumpPower1", -- A flag is the identifier for the configuration file; make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+   Callback = function(Value)
+   -- The function that takes place when the slider changes
+             game.Players.LocalPlayer.Character.Humanoid.JumpPower = (Value)
+   -- The variable (Value) is a number that correlates to the value the slider is currently at
+   end,
+})
+local Fly = false
+local FlySpeed = 50
+local player = game.Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+
+local function StartFly()
+    local character = player.Character
+    if not character then return end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    -- Crear BodyVelocity seguro
+    local bv = Instance.new("BodyVelocity")
+    bv.Name = "FlyVelocity"
+    bv.MaxForce = Vector3.new(1e5,1e5,1e5)
+    bv.Velocity = Vector3.new(0,0,0)
+    bv.Parent = hrp
+
+    -- Loop de vuelo estable
+    spawn(function()
+        while Fly and bv.Parent do
+            local move = Vector3.new()
+
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then move = move + workspace.CurrentCamera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then move = move - workspace.CurrentCamera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then move = move - workspace.CurrentCamera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then move = move + workspace.CurrentCamera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move = move + Vector3.new(0,1,0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then move = move - Vector3.new(0,1,0) end
+
+            if move.Magnitude > 0 then
+                bv.Velocity = move.Unit * FlySpeed
+            else
+                bv.Velocity = Vector3.new(0,0,0) -- ¡no te mueve si no presionas teclas!
+            end
+
+            wait(0.03) -- loop rápido pero estable
+        end
+        if bv then bv:Destroy() end
+    end)
+end
+
+local function StopFly()
+    Fly = false
+    local character = player.Character
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        local hrp = character.HumanoidRootPart
+        if hrp:FindFirstChild("FlyVelocity") then
+            hrp.FlyVelocity:Destroy()
+        end
+    end
+end
+local FlyToggle = MainTab:CreateToggle({
+    Name = "Volar",
+    CurrentValue = false,
+    Flag = "fly_toggle",
+    Callback = function(Value)
+        Fly = Value
+        if Fly then
+            StartFly()
+        else
+            StopFly()
+        end
+    end,
+})
+local FlySpeedSlider = MainTab:CreateSlider({
+    Name = "Velocidad de vuelo",
+    Range = {10, 500}, -- mínimo 10, máximo 500 studs/s
+    Increment = 5,
+    Suffix = " studs/s",
+    CurrentValue = 50,
+    Flag = "flyspeed",
+    Callback = function(Value)
+        FlySpeed = Value -- cambia la variable en tiempo real
+    end,
+})
+ 
+Slider = MainTab:CreateSlider({
+   Name = "Zoom Cámara",
+   Range = {10, 500},
+   Increment = 5,
+   Suffix = " distance",
+   CurrentValue = 50,
+
+   Callback = function(Value)
+       game.Players.LocalPlayer.CameraMaxZoomDistance = Value
+   end,
+})
+
+
+
+
+
