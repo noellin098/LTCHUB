@@ -222,7 +222,118 @@ local FlySpeedSlider = MainTab:CreateSlider({
         FlySpeed = Value -- cambia la variable en tiempo real
     end,
 })
- 
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local ESPEnabled = false
+local Highlights = {}
+local NameTags = {}
+
+-- Crear ESP
+local function CreateESP(player)
+    if player == LocalPlayer then return end
+    if Highlights[player] then return end
+
+    local char = player.Character
+    if not char then return end
+
+    -- 🔴 Highlight
+    local hl = Instance.new("Highlight")
+    hl.FillColor = Color3.fromRGB(255,0,0)
+    hl.OutlineColor = Color3.fromRGB(255,255,255)
+    hl.Parent = char
+    Highlights[player] = hl
+
+    -- 🏷️ Nombre + distancia
+    local billboard = Instance.new("BillboardGui")
+    billboard.Size = UDim2.new(0,200,0,50)
+    billboard.AlwaysOnTop = true
+
+    local label = Instance.new("TextLabel")
+    label.Parent = billboard
+    label.Size = UDim2.new(1,0,1,0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.fromRGB(255,255,255)
+    label.TextStrokeTransparency = 0
+    label.TextScaled = true
+
+    billboard.Parent = workspace
+
+    NameTags[player] = {
+        Gui = billboard,
+        Label = label
+    }
+end
+
+-- Eliminar ESP
+local function RemoveESP(player)
+    if Highlights[player] then
+        Highlights[player]:Destroy()
+        Highlights[player] = nil
+    end
+
+    if NameTags[player] then
+        NameTags[player].Gui:Destroy()
+        NameTags[player] = nil
+    end
+end
+
+-- Actualizar nombre + distancia
+RunService.RenderStepped:Connect(function()
+    if not ESPEnabled then return end
+
+    for player, data in pairs(NameTags) do
+        local char = player.Character
+        if char and char:FindFirstChild("Head") and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            
+            local head = char.Head
+            local myRoot = LocalPlayer.Character.HumanoidRootPart
+
+            data.Gui.Adornee = head
+
+            local distance = (head.Position - myRoot.Position).Magnitude
+            distance = math.floor(distance)
+
+            data.Label.Text = player.Name .. " [" .. distance .. "m]"
+        end
+    end
+end)
+
+-- Toggle
+local ESPToggle = MainTab:CreateToggle({
+    Name = "ESP PRO 😈",
+    CurrentValue = false,
+    Flag = "esp_pro",
+
+    Callback = function(Value)
+        ESPEnabled = Value
+
+        if ESPEnabled then
+            for _, player in pairs(Players:GetPlayers()) do
+                CreateESP(player)
+            end
+        else
+            for player, _ in pairs(Highlights) do
+                RemoveESP(player)
+            end
+        end
+    end,
+})
+
+-- Nuevos jugadores
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function()
+        if ESPEnabled then
+            CreateESP(player)
+        end
+    end)
+end)
+
+-- Cuando se van
+Players.PlayerRemoving:Connect(function(player)
+    RemoveESP(player)
+end)
 Slider = MainTab:CreateSlider({
    Name = "Zoom Cámara",
    Range = {10, 500},
